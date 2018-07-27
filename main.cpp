@@ -17,6 +17,10 @@
 #include <sys/timerfd.h>
 #include <unistd.h>
 #include <pwd.h>
+#include <syslog.h>
+#include <sstream>
+#include <signal.h>
+#include <sys/signalfd.h>
 
 using namespace std;
 
@@ -404,7 +408,7 @@ ssize_t dns::to_wire(char *buf) {
         htons_ptr(ptr, add.data_length);
     }
 
-    return ptr-buf;
+    return ptr - buf;
 }
 
 
@@ -483,7 +487,9 @@ int main(int argc, char *argv[]) {
     std::cout << "Start Server ..." << std::endl;
     if (bDaemon) {
         cout << "Enter daemon mode .." << endl;
+        cout << "Open syslog facility .. " << endl;
         daemon(0, 0);
+        openlog(argv[0], LOG_PID, LOG_USER);
     }
 
     struct sockaddr_storage server_addr;
@@ -497,15 +503,18 @@ int main(int argc, char *argv[]) {
         ((sockaddr_in *) &server_addr)->sin_port = htons(local_port);
     } else {
         cerr << "Local addresss is invaild" << endl;
+        if (bDaemon) syslog(LOG_ERR, "Local addresss(%s) is invaild", local_address);
         exit(EXIT_FAILURE);
     }
     int server_sock = socket(server_addr.ss_family, SOCK_DGRAM, IPPROTO_UDP);
     if (server_sock < 0) {
         perror("Can not open socket ");
+        if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
         exit(EXIT_FAILURE);
     }
     if (bind(server_sock, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
         perror("bind failed !");
+        if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
         exit(EXIT_FAILURE);
     }
     setnonblocking(server_sock);
@@ -521,11 +530,13 @@ int main(int argc, char *argv[]) {
         ((sockaddr_in *) &upserver_addr)->sin_port = htons(53);
     } else {
         cerr << "Remote addresss is invaild" << endl;
+        if (bDaemon) syslog(LOG_ERR, "Remote addresss(%s) is invaild", remote_address);
         exit(EXIT_FAILURE);
     }
     int upserver_sock = socket(upserver_addr.ss_family, SOCK_DGRAM, IPPROTO_UDP);
     if (upserver_sock < 0) {
         perror("Can not open socket ");
+        if (bDaemon) syslog(LOG_ERR, "Can not open socket remote up stream server communication");
         exit(EXIT_FAILURE);
     }
     setnonblocking(upserver_sock);
@@ -560,6 +571,39 @@ int main(int argc, char *argv[]) {
     ev.data.fd = tfd;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, tfd, &ev);
 
+    sigset_t mask;
+
+    struct signalfd_siginfo fdsi;
+    ssize_t s;
+
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGQUIT);
+    sigaddset(&mask, SIGTERM);
+
+    /* Block signals so that they aren't handled
+       according to their default dispositions */
+
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
+        ostringstream os;
+        os << "sigprocmask" << strerror(errno) << endl;
+        cerr << os.str();
+        if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
+        exit(EXIT_FAILURE);
+    }
+    int sfd = signalfd(-1, &mask, 0);
+    if (sfd == -1) {
+        ostringstream os;
+        os << "signalfd" << strerror(errno) << endl;
+        cerr << os.str();
+        if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
+        exit(EXIT_FAILURE);
+    }
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.fd = sfd;
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev);
+
+
     class Upstream {
     public:
         uint16_t cli_id;
@@ -590,8 +634,11 @@ int main(int argc, char *argv[]) {
                         continue;
                     }
                     auto &q = upstream->dns1.questions[0];
-                    cout << q.name << "  " << dns::QClass2Name[q.Class] << "    "
-                         << dns::QType2Name[q.Type] << endl;
+                    ostringstream os;
+                    os << q.name << "  " << dns::QClass2Name[q.Class] << "    "
+                       << dns::QType2Name[q.Type] << endl;
+                    cout << os.str();
+                    if (bDaemon) syslog(LOG_INFO, "%s", os.str().c_str());
 
                     if (q.Type == dns::A and ipv6_first) {
                         q.Type = dns::AAAA;
@@ -623,6 +670,7 @@ int main(int argc, char *argv[]) {
                     }
                     if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) < 0) {
                         cerr << "send error" << endl;
+                        if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
                     }
                     id_map[new_id] = upstream;
                 }
@@ -669,6 +717,7 @@ int main(int argc, char *argv[]) {
                                 n = upstream->dns1.to_wire(buf);
                                 if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
                                            sizeof(upserver_addr)) < 0) {
+                                    if (bDaemon) syslog(LOG_WARNING, "send to client error");
                                     cerr << "send error" << endl;
                                 }
                                 id_map[upstream->dns1.id] = upstream;
@@ -723,8 +772,18 @@ int main(int argc, char *argv[]) {
                     itimer.it_value.tv_nsec = 0;
                 }
                 timerfd_settime(tfd, TFD_TIMER_ABSTIME, &itimer, nullptr);
+            } else if (events[_n].data.fd == sfd) {
+                // need to check which signal was send
+                if (bDaemon) syslog(LOG_INFO, "exit normally");
+                goto end;
             }
         }
     }
+    end:
+    if (bDaemon) closelog();
+    close(epollfd);
+    close(server_sock);
+    close(upserver_sock);
+    cerr << "EXIT_SUCCESS" << endl;
     return EXIT_SUCCESS;
 }

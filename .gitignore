@@ -131,3 +131,4 @@ fabric.properties
 *.lai
 
 # Executables
+.idea/
