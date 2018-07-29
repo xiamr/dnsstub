@@ -26,6 +26,8 @@ using namespace std;
 
 const int max_udp_len = 65536;
 
+class out_of_bound{};
+
 
 class dns {
 public:
@@ -117,7 +119,7 @@ public:
     vector<Additional> additionals;
 
 
-    string getName(char *&ptr, char *buf);
+    string getName(char *&ptr, char *buf, const char *upbound);
 
     char *toName(string &name, char *ptr, const char *buf, unordered_map<string, uint16_t> &str_map);
 
@@ -126,13 +128,15 @@ public:
 
     bool GFW_mode = true;
 private:
-    uint16_t ntohs_ptr(char *&ptr) {
+    uint16_t ntohs_ptr(char *&ptr, const char *upbound) {
+        if (ptr + 1 > upbound) throw out_of_bound();
         uint16_t value = ntohs(*(uint16_t *) ptr);
         ptr += 2;
         return value;
     }
 
-    uint32_t ntohl_ptr(char *&ptr) {
+    uint32_t ntohl_ptr(char *&ptr, const char * upbound) {
+        if (ptr + 3 > upbound) throw  out_of_bound();
         uint32_t value = ntohl(*(uint32_t *) ptr);
         ptr += 4;
         return value;
@@ -177,30 +181,32 @@ unordered_map<enum dns::QClass, string> dns::QClass2Name = {
 
 void dns::from_wire(char *buf, int len) {
     char *ptr = buf;
+    const char * upbound = buf + len;
     unsigned short qdcout;
     unsigned short ancout;
     unsigned short nscout;
     unsigned short arcout;
-    id = ntohs_ptr(ptr);
-    signs = ntohs_ptr(ptr);
-    qdcout = ntohs_ptr(ptr);
-    ancout = ntohs_ptr(ptr);
-    nscout = ntohs_ptr(ptr);
-    arcout = ntohs_ptr(ptr);
+    id = ntohs_ptr(ptr,upbound);
+    signs = ntohs_ptr(ptr,upbound);
+    qdcout = ntohs_ptr(ptr,upbound);
+    ancout = ntohs_ptr(ptr,upbound);
+    nscout = ntohs_ptr(ptr,upbound);
+    arcout = ntohs_ptr(ptr,upbound);
     for (unsigned short i = 0; i < qdcout; i++) {
         Question question;
-        question.name = getName(ptr, buf);
-        question.Type = (QType) ntohs_ptr(ptr);
-        question.Class = (QClass) ntohs_ptr(ptr);
+        question.name = getName(ptr, buf,upbound);
+        question.Type = (QType) ntohs_ptr(ptr,upbound);
+        question.Class = (QClass) ntohs_ptr(ptr,upbound);
         questions.push_back(question);
     }
     for (unsigned short i = 0; i < ancout; i++) {
         Answer answer;
-        answer.name = getName(ptr, buf);
-        answer.Type = (QType) ntohs_ptr(ptr);
-        answer.Class = (QClass) ntohs_ptr(ptr);
-        answer.TTL = ntohl_ptr(ptr);
-        uint16_t RDLENGTH = ntohs_ptr(ptr);
+        answer.name = getName(ptr, buf,upbound);
+        answer.Type = (QType) ntohs_ptr(ptr,upbound);
+        answer.Class = (QClass) ntohs_ptr(ptr,upbound);
+        answer.TTL = ntohl_ptr(ptr,upbound);
+        uint16_t RDLENGTH = ntohs_ptr(ptr,upbound);
+        if (ptr + RDLENGTH - 1 > upbound) throw out_of_bound();
         char mybuf[1024];
         switch (answer.Type) {
             case A:
@@ -212,7 +218,7 @@ void dns::from_wire(char *buf, int len) {
                 ptr += RDLENGTH;
                 break;
             default:
-                answer.rdata = getName(ptr, buf);
+                answer.rdata = getName(ptr, buf,upbound);
         }
 
         answers.push_back(answer);
@@ -286,19 +292,21 @@ char *dns::toName(string &name, char *ptr, const char *buf, unordered_map<string
 
 }
 
-string dns::getName(char *&ptr, char *buf) {
+string dns::getName(char *&ptr, char *buf, const char *upbound) {
     string name;
     bool first = true;
     while (true) {
+        if (ptr  > upbound) throw out_of_bound();
         unsigned char count = *ptr;
 
         char *locate;
         if (count & 0xc0) {
             // compressed label
-            locate = buf + 256 * (count & 0x3f) + *(ptr + 1);
+            if (ptr + 1 > upbound) throw out_of_bound();
+            locate = buf + 256 * (count & 0x3f) + *((uint8_t*)(ptr + 1));
             if (!first) name.append(1, '.');
             else first = false;
-            name += getName(locate, buf);
+            name += getName(locate, buf,upbound);
             ptr += 2;
             break;
         } else {
@@ -308,6 +316,7 @@ string dns::getName(char *&ptr, char *buf) {
         if (count > 0) {
             if (!first) name.append(1, '.');
             else first = false;
+            if (locate + count > upbound) throw out_of_bound();
             name.append(locate + 1, count);
         } else {
             break;
@@ -578,7 +587,6 @@ int main(int argc, char *argv[]) {
 
     sigemptyset(&mask);
     sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGQUIT);
     sigaddset(&mask, SIGTERM);
 
     /* Block signals so that they aren't handled
@@ -628,7 +636,13 @@ int main(int argc, char *argv[]) {
             if (events[_n].data.fd == server_sock) {
                 while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
                     auto *upstream = new Upstream();
-                    upstream->dns1.from_wire(buf, n);
+                    try {
+                         upstream->dns1.from_wire(buf, n);
+                    }catch (out_of_bound &err){
+                        delete upstream;
+                        continue;
+                    }
+
                     if (upstream->dns1.questions.empty()) {
                         delete upstream;
                         continue;
