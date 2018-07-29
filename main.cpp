@@ -661,7 +661,7 @@ int main(int argc, char *argv[]) {
                         upstream->checked_ipv6 = true;
                     }
                     upstream->dns1.GFW_mode = gfw_mode;
-                    if (ipv6_first and gfw_mode) {
+                    if (ipv6_first or gfw_mode) {
                         n = upstream->dns1.to_wire(buf);
                     }
                     upstream->cli_id = ntohs(*(uint16_t *) buf);
