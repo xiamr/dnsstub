@@ -26,7 +26,18 @@ using namespace std;
 
 const int max_udp_len = 65536;
 
-class out_of_bound{};
+string get_err_string(int num){
+    ostringstream os;
+    os << "__LINE__ = " << num;
+    return os.str();
+}
+
+class out_of_bound : public runtime_error {
+public:
+    explicit out_of_bound(int line);
+};
+
+out_of_bound::out_of_bound(int line) : runtime_error(get_err_string(line)) {}
 
 
 class dns {
@@ -112,7 +123,7 @@ public:
         return (signs & RCODE);
     }
 
-    ssize_t to_wire(char *buf);
+    ssize_t to_wire(char *buf, int len);
 
     vector<Question> questions;
     vector<Answer> answers;
@@ -121,33 +132,36 @@ public:
 
     string getName(char *&ptr, char *buf, const char *upbound);
 
-    char *toName(string &name, char *ptr, const char *buf, unordered_map<string, uint16_t> &str_map);
+    char *toName(string &name, char *ptr, const char *buf, const char *upbound,
+                 unordered_map<string, uint16_t> &str_map);
 
-    unsigned short id;
-    unsigned short signs;
+    unsigned short id{};
+    unsigned short signs{};
 
     bool GFW_mode = true;
 private:
     uint16_t ntohs_ptr(char *&ptr, const char *upbound) {
-        if (ptr + 1 > upbound) throw out_of_bound();
+        if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
         uint16_t value = ntohs(*(uint16_t *) ptr);
         ptr += 2;
         return value;
     }
 
-    uint32_t ntohl_ptr(char *&ptr, const char * upbound) {
-        if (ptr + 3 > upbound) throw  out_of_bound();
+    uint32_t ntohl_ptr(char *&ptr, const char *upbound) {
+        if (ptr + 3 > upbound) throw out_of_bound(__LINE__);
         uint32_t value = ntohl(*(uint32_t *) ptr);
         ptr += 4;
         return value;
     }
 
-    void htons_ptr(char *&ptr, uint16_t value) {
+    void htons_ptr(char *&ptr, uint16_t value, const char *upbound) {
+        if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
         *(uint16_t *) ptr = htons(value);
         ptr += 2;
     }
 
-    void htonl_ptr(char *&ptr, uint32_t value) {
+    void htonl_ptr(char *&ptr, uint32_t value, const char *upbound) {
+        if (ptr + 3 > upbound) throw out_of_bound(__LINE__);
         *(uint32_t *) ptr = htonl(value);
         ptr += 4;
     }
@@ -181,32 +195,32 @@ unordered_map<enum dns::QClass, string> dns::QClass2Name = {
 
 void dns::from_wire(char *buf, int len) {
     char *ptr = buf;
-    const char * upbound = buf + len;
+    const char *upbound = buf + len;
     unsigned short qdcout;
     unsigned short ancout;
     unsigned short nscout;
     unsigned short arcout;
-    id = ntohs_ptr(ptr,upbound);
-    signs = ntohs_ptr(ptr,upbound);
-    qdcout = ntohs_ptr(ptr,upbound);
-    ancout = ntohs_ptr(ptr,upbound);
-    nscout = ntohs_ptr(ptr,upbound);
-    arcout = ntohs_ptr(ptr,upbound);
+    id = ntohs_ptr(ptr, upbound);
+    signs = ntohs_ptr(ptr, upbound);
+    qdcout = ntohs_ptr(ptr, upbound);
+    ancout = ntohs_ptr(ptr, upbound);
+    nscout = ntohs_ptr(ptr, upbound);
+    arcout = ntohs_ptr(ptr, upbound);
     for (unsigned short i = 0; i < qdcout; i++) {
         Question question;
-        question.name = getName(ptr, buf,upbound);
-        question.Type = (QType) ntohs_ptr(ptr,upbound);
-        question.Class = (QClass) ntohs_ptr(ptr,upbound);
+        question.name = getName(ptr, buf, upbound);
+        question.Type = (QType) ntohs_ptr(ptr, upbound);
+        question.Class = (QClass) ntohs_ptr(ptr, upbound);
         questions.push_back(question);
     }
     for (unsigned short i = 0; i < ancout; i++) {
         Answer answer;
-        answer.name = getName(ptr, buf,upbound);
-        answer.Type = (QType) ntohs_ptr(ptr,upbound);
-        answer.Class = (QClass) ntohs_ptr(ptr,upbound);
-        answer.TTL = ntohl_ptr(ptr,upbound);
-        uint16_t RDLENGTH = ntohs_ptr(ptr,upbound);
-        if (ptr + RDLENGTH - 1 > upbound) throw out_of_bound();
+        answer.name = getName(ptr, buf, upbound);
+        answer.Type = (QType) ntohs_ptr(ptr, upbound);
+        answer.Class = (QClass) ntohs_ptr(ptr, upbound);
+        answer.TTL = ntohl_ptr(ptr, upbound);
+        uint16_t RDLENGTH = ntohs_ptr(ptr, upbound);
+        if (ptr + RDLENGTH - 1 > upbound) throw out_of_bound(__LINE__);
         char mybuf[1024];
         switch (answer.Type) {
             case A:
@@ -218,7 +232,7 @@ void dns::from_wire(char *buf, int len) {
                 ptr += RDLENGTH;
                 break;
             default:
-                answer.rdata = getName(ptr, buf,upbound);
+                answer.rdata = getName(ptr, buf, upbound);
         }
 
         answers.push_back(answer);
@@ -243,12 +257,14 @@ void dns::from_wire(char *buf, int len) {
 //    }
 }
 
-char *dns::toName(string &name, char *ptr, const char *buf, unordered_map<string, uint16_t> &str_map) {
+char *dns::toName(string &name, char *ptr, const char *buf, const char *upbound,
+                  unordered_map<string, uint16_t> &str_map) {
     char *now_ptr = ptr;
     uint8_t sublen = 0;
     size_t pos = 0;
     try {
         uint16_t off = str_map.at(name.substr(pos));
+        if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
         *(uint16_t *) ptr = htons(off);
         *ptr |= 0xc0;
         ptr += 2;
@@ -260,12 +276,14 @@ char *dns::toName(string &name, char *ptr, const char *buf, unordered_map<string
     for (char &c : name) {
         if (c == '.') {
             if (sublen) {
+                if (now_ptr > upbound) throw out_of_bound(__LINE__);
                 *now_ptr = sublen;
             }
             sublen = 0;
             pos++;
             try {
                 uint16_t off = str_map.at(name.substr(pos));
+                if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
                 *(uint16_t *) ptr = htons(off);
                 *ptr |= 0xc0;
                 ptr += 2;
@@ -276,6 +294,7 @@ char *dns::toName(string &name, char *ptr, const char *buf, unordered_map<string
             now_ptr = ptr;
             ptr++;
         } else {
+            if (ptr > upbound) throw out_of_bound(__LINE__);
             *ptr = c;
             sublen++;
             ptr++;
@@ -296,17 +315,17 @@ string dns::getName(char *&ptr, char *buf, const char *upbound) {
     string name;
     bool first = true;
     while (true) {
-        if (ptr  > upbound) throw out_of_bound();
+        if (ptr > upbound) throw out_of_bound(__LINE__);
         unsigned char count = *ptr;
 
         char *locate;
         if (count & 0xc0) {
             // compressed label
-            if (ptr + 1 > upbound) throw out_of_bound();
-            locate = buf + 256 * (count & 0x3f) + *((uint8_t*)(ptr + 1));
+            if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
+            locate = buf + 256 * (count & 0x3f) + *((uint8_t *) (ptr + 1));
             if (!first) name.append(1, '.');
             else first = false;
-            name += getName(locate, buf,upbound);
+            name += getName(locate, buf, upbound);
             ptr += 2;
             break;
         } else {
@@ -316,7 +335,7 @@ string dns::getName(char *&ptr, char *buf, const char *upbound) {
         if (count > 0) {
             if (!first) name.append(1, '.');
             else first = false;
-            if (locate + count > upbound) throw out_of_bound();
+            if (locate + count > upbound) throw out_of_bound(__LINE__);
             name.append(locate + 1, count);
         } else {
             break;
@@ -356,65 +375,72 @@ void dns::print() {
 }
 
 
-ssize_t dns::to_wire(char *buf) {
+ssize_t dns::to_wire(char *buf, int n) {
     unordered_map<string, uint16_t> str_map;
     char *ptr = buf;
-    htons_ptr(ptr, id);
-    htons_ptr(ptr, signs);
+    const char *upbound = buf + n;
+    htons_ptr(ptr, id, upbound);
+    htons_ptr(ptr, signs, upbound);
     if (!(signs & QR) and GFW_mode) {
-        htons_ptr(ptr, 2);
+        htons_ptr(ptr, 2, upbound);
     } else {
-        htons_ptr(ptr, questions.size());
+        htons_ptr(ptr, questions.size(), upbound);
     }
-    htons_ptr(ptr, answers.size());
-    htons_ptr(ptr, 0);
-    htons_ptr(ptr, 0);
+    htons_ptr(ptr, answers.size(), upbound);
+    htons_ptr(ptr, 0, upbound);
+    htons_ptr(ptr, 0, upbound);
     if (!(signs & QR) and GFW_mode) {
-        htons_ptr(ptr, 0xc012);
-        htons_ptr(ptr, questions[0].Type);
-        htons_ptr(ptr, questions[0].Class);
+        htons_ptr(ptr, 0xc012, upbound);
+        htons_ptr(ptr, questions[0].Type, upbound);
+        htons_ptr(ptr, questions[0].Class, upbound);
     }
     for (auto &q : questions) {
-        char *new_ptr = toName(q.name, ptr, buf, str_map);
+        char *new_ptr = toName(q.name, ptr, buf, upbound, str_map);
         ptr = new_ptr;
-        htons_ptr(ptr, q.Type);
-        htons_ptr(ptr, q.Class);
+        htons_ptr(ptr, q.Type, upbound);
+        htons_ptr(ptr, q.Class, upbound);
     }
     for (auto &ans : answers) {
-        ptr = toName(ans.name, ptr, buf, str_map);
-        htons_ptr(ptr, ans.Type);
-        htons_ptr(ptr, ans.Class);
-        htonl_ptr(ptr, ans.TTL);
+        ptr = toName(ans.name, ptr, buf, upbound, str_map);
+        htons_ptr(ptr, ans.Type, upbound);
+        htons_ptr(ptr, ans.Class, upbound);
+        htonl_ptr(ptr, ans.TTL, upbound);
         switch (ans.Type) {
             case A:
-                htons_ptr(ptr, sizeof(in_addr));
+                htons_ptr(ptr, sizeof(in_addr), upbound);
                 inet_pton(AF_INET, ans.rdata.c_str(), ptr);
+                if (ptr + sizeof(struct in_addr) > upbound) throw out_of_bound(__LINE__);
                 ptr += sizeof(struct in_addr);
                 break;
             case AAAA:
-                htons_ptr(ptr, sizeof(in6_addr));
+                htons_ptr(ptr, sizeof(in6_addr), upbound);
+                if (ptr + sizeof(struct in6_addr) > upbound) throw out_of_bound(__LINE__);
                 inet_pton(AF_INET6, ans.rdata.c_str(), ptr);
                 ptr += sizeof(struct in6_addr);
                 break;
             default:
                 char *len_ptr = ptr;
                 ptr += 2;
-                char *new_ptr = toName(ans.rdata, ptr, buf, str_map);
+                char *new_ptr = toName(ans.rdata, ptr, buf, upbound, str_map);
+                if (len_ptr + 1 > upbound) throw out_of_bound(__LINE__);
                 *(uint16_t *) len_ptr = htons(new_ptr - ptr);
                 ptr = new_ptr;
         }
     }
     for (auto &add : additionals) {
+        if (ptr > upbound) throw out_of_bound(__LINE__);
         *ptr = add.name;
         ptr++;
-        htons_ptr(ptr, add.Type);
-        htons_ptr(ptr, add.playload_size);
+        htons_ptr(ptr, add.Type, upbound);
+        htons_ptr(ptr, add.playload_size, upbound);
+        if (ptr > upbound) throw out_of_bound(__LINE__);
         *ptr = add.high_bit_in_extend_rcode;
         ptr++;
+        if (ptr > upbound) throw out_of_bound(__LINE__);
         *ptr = add.edns0_verion;
         ptr++;
-        htons_ptr(ptr, add.Z);
-        htons_ptr(ptr, add.data_length);
+        htons_ptr(ptr, add.Z, upbound);
+        htons_ptr(ptr, add.data_length, upbound);
     }
 
     return ptr - buf;
@@ -637,8 +663,10 @@ int main(int argc, char *argv[]) {
                 while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
                     auto *upstream = new Upstream();
                     try {
-                         upstream->dns1.from_wire(buf, n);
-                    }catch (out_of_bound &err){
+                        upstream->dns1.from_wire(buf, n);
+                    } catch (out_of_bound &err) {
+                        cerr << "Memory Access Error : " << err.what() << endl;
+                        if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
                         delete upstream;
                         continue;
                     }
@@ -662,7 +690,14 @@ int main(int argc, char *argv[]) {
                     }
                     upstream->dns1.GFW_mode = gfw_mode;
                     if (ipv6_first or gfw_mode) {
-                        n = upstream->dns1.to_wire(buf);
+                        try {
+                            n = upstream->dns1.to_wire(buf, max_udp_len);
+                        } catch (out_of_bound &err) {
+                            cerr << "Memory Access Error : " << err.what() << endl;
+                            if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+                            delete upstream;
+                            continue;
+                        }
                     }
                     upstream->cli_id = ntohs(*(uint16_t *) buf);
                     uint16_t new_id = get_id();
@@ -713,7 +748,14 @@ int main(int argc, char *argv[]) {
                             upstream->next->prev = upstream->prev;
                         }
                         if (!upstream->checked_ipv6) {
-                            dns dns1(buf, n);
+                            dns dns1;
+                            try {
+                                dns1.from_wire(buf, n);
+                            } catch (out_of_bound &err) {
+                                delete upstream;
+                                continue;
+                            }
+
                             for (auto &ans : dns1.answers) {
                                 if (ans.Type == dns::AAAA) {
                                     upstream->checked_ipv6 = true;
@@ -722,13 +764,28 @@ int main(int argc, char *argv[]) {
                             }
                             if (upstream->checked_ipv6) {
                                 dns1.questions[0].Type = dns::A;
-                                n = dns1.to_wire(buf);
+                                try {
+                                    n = dns1.to_wire(buf, max_udp_len);
+                                } catch (out_of_bound &err) {
+                                    cerr << "Memory Access Error : " << err.what() << endl;
+                                    if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+                                    delete upstream;
+                                    continue;
+                                }
                             } else {
                                 upstream->checked_ipv6 = true;
                                 upstream->dns1.questions[0].Type = dns::A;
                                 upstream->dns1.id = get_id();
                                 upstream->up_id = upstream->dns1.id;
-                                n = upstream->dns1.to_wire(buf);
+                                try {
+                                    n = upstream->dns1.to_wire(buf, max_udp_len);
+                                } catch (out_of_bound &err) {
+                                    cerr << "Memory Access Error : " << err.what() << endl;
+                                    if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+                                    delete upstream;
+                                    continue;
+                                }
+
                                 if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
                                            sizeof(upserver_addr)) < 0) {
                                     if (bDaemon) syslog(LOG_WARNING, "send to client error");
