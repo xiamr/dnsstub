@@ -501,7 +501,7 @@ public:
     bool part_len = false;
 
     ~Upstream() {
-        delete[] buf;
+        if (buf) delete[] buf;
     }
 };
 
@@ -726,7 +726,7 @@ void read_buf(int fd, char *buf, Upstream *up) {
                     up->buf_len = ntohs(*(uint16_t *) buf);
                     up->buf = new char[up->buf_len];
                 } else {
-                    // == 0 error
+                    break;
                 }
             } else {
                 n = read(fd, buf, 2);
@@ -739,7 +739,7 @@ void read_buf(int fd, char *buf, Upstream *up) {
                     up->part_len = true;
                     up->len_buf[0] = buf[0];
                 } else {
-                    // ==0 Error
+                    break;
                 }
             }
         } else {
@@ -999,7 +999,7 @@ int main(int argc, char *argv[]) {
                     }
                     // Accept new connnection from client
                     setnonblocking(newcon);
-                    ev.events = EPOLLET | EPOLLIN;
+                    ev.events = EPOLLET | EPOLLIN | EPOLLERR;
                     ev.data.fd = newcon;
                     epoll_ctl(epollfd, EPOLL_CTL_ADD, newcon, &ev);
                     auto *up = new Upstream();
@@ -1010,29 +1010,34 @@ int main(int argc, char *argv[]) {
                 }
             } else if (enable_tcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
                 auto up = client_tcp_con[events[_n].data.fd];
-
-                read_buf(events[_n].data.fd, buf, up);
-                if (up->data_len == up->buf_len != 0) {
-                    if (!add_upstream(up->buf, up->buf_len, up)) continue;
-                    int upfd = socket(upserver_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
-                    if (upfd < 0) {
-                        perror("Can not open socket ");
-                        if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
-                        exit(EXIT_FAILURE);
+                if (events[_n].events & EPOLLIN) {
+                    read_buf(events[_n].data.fd, buf, up);
+                    if (up->data_len == up->buf_len != 0) {
+                        if (!add_upstream(up->buf, up->buf_len, up)) continue;
+                        int upfd = socket(upserver_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
+                        if (upfd < 0) {
+                            perror("Can not open socket ");
+                            if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+                            exit(EXIT_FAILURE);
+                        }
+                        setnonblocking(upfd);
+                        ev.events = EPOLLET | EPOLLOUT | EPOLLERR;
+                        ev.data.fd = upfd;
+                        epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
+                        int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+                        if (ret < 0 and errno != EINPROGRESS) {
+                            syslog(LOG_ERR, "connect to up server error %d : %s", __LINE__, strerror(errno));
+                            return EXIT_FAILURE;
+                        }
+                        up->ser_fd = upfd;
+                        server_tcp_con[upfd] = up;
                     }
-                    setnonblocking(upfd);
-                    ev.events = EPOLLET | EPOLLOUT;
-                    ev.data.fd = upfd;
-                    epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
-                    int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
-                    if (ret < 0 and errno != EINPROGRESS) {
-                        syslog(LOG_ERR, "connect to up server error %d : %s", __LINE__, strerror(errno));
-                        return EXIT_FAILURE;
-                    }
-                    up->ser_fd = upfd;
-                    server_tcp_con[upfd] = up;
+                } else if (events[_n].events & EPOLLERR) {
+                    close(events[_n].data.fd);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL,events[_n].data.fd, nullptr);
+                    delete up;
+                    client_tcp_con.erase(events[_n].data.fd);
                 }
-
 
             } else if (enable_tcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
                 int upfd = events[_n].data.fd;
@@ -1047,7 +1052,7 @@ int main(int argc, char *argv[]) {
                         perror("up write ");
                         return EXIT_FAILURE;
                     }
-                    ev.events = EPOLLET | EPOLLIN;
+                    ev.events = EPOLLET | EPOLLIN | EPOLLERR;
                     ev.data.fd = upfd;
                     epoll_ctl(epollfd, EPOLL_CTL_MOD, upfd, &ev);
                     delete[] up->buf;
@@ -1075,6 +1080,15 @@ int main(int argc, char *argv[]) {
                         delete upstream;
                         upstream = nullptr;
                     }
+                } else if (events[_n].events & EPOLLERR){
+                    close(up->cli_fd);
+                    close(up->ser_fd);
+                    client_tcp_con.erase(up->cli_fd);
+                    server_tcp_con.erase(up->ser_fd);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, up->ser_fd, nullptr);
+                    id_map.erase(up->up_id);
+                    delete up;
                 }
 
 
