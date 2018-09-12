@@ -51,6 +51,16 @@ public:
     explicit out_of_bound(int line);
 };
 
+class BadDnsError : public runtime_error {
+public:
+    explicit BadDnsError(const string& __arg) : runtime_error(__arg) {}
+
+    explicit BadDnsError(const char *__arg) : runtime_error(__arg) {}
+    BadDnsError() : runtime_error("BadDnsError") {}
+};
+
+
+
 out_of_bound::out_of_bound(int line) : runtime_error(get_err_string(line)) {}
 
 class Cache;
@@ -359,6 +369,7 @@ string Dns::getName(char *&ptr, char *buf, const char *upbound) {
             break;
         }
     }
+    if (name.empty()) throw BadDnsError();
     return name;
 }
 
@@ -635,7 +646,7 @@ private:
         }
         itimer.it_value.tv_nsec = 0;
         double ntime = itimer.it_value.tv_sec + itimer.it_value.tv_nsec * 10e-9;
-        if (abs(ntime - last_timer) < 1)
+        if (abs(static_cast<int>(ntime - last_timer)) < 1)
             return;
         timerfd_settime(timer_fd, TFD_TIMER_ABSTIME, &itimer, nullptr);
         last_timer = ntime;
@@ -899,6 +910,9 @@ Upstream *check(char *buf, ssize_t &n, sockaddr *upserver_addr, socklen_t sockle
         try {
             dns1.from_wire(buf, n);
         } catch (out_of_bound &err) {
+            delete upstream;
+            return nullptr;
+        } catch (BadDnsError){
             delete upstream;
             return nullptr;
         }
@@ -1278,6 +1292,8 @@ int main(int argc, char *argv[]) {
                     } catch (out_of_bound &err) {
                         cerr << "Memory Access Error : " << err.what() << endl;
                         if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+                    } catch (BadDnsError){
+                         cerr << "Bad Dns "  << endl;
                     }
                     if (up->dns1.questions.empty()) {
                         delete up;
@@ -1377,6 +1393,8 @@ int main(int argc, char *argv[]) {
                         } catch (out_of_bound &err) {
                             cerr << "Memory Access Error : " << err.what() << endl;
                             if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+                        } catch (BadDnsError){
+                             cerr << "Bad Dns " << endl;
                         }
                         if (up->dns1.questions.empty()) {
                             delete up;
