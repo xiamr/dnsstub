@@ -22,6 +22,9 @@
 #include <signal.h>
 #include <sys/signalfd.h>
 #include <unordered_set>
+#include <fnmatch.h>
+#include <fstream>
+#include <boost/algorithm/string.hpp>
 
 using namespace std;
 
@@ -53,12 +56,12 @@ public:
 
 class BadDnsError : public runtime_error {
 public:
-    explicit BadDnsError(const string& __arg) : runtime_error(__arg) {}
+    explicit BadDnsError(const string &__arg) : runtime_error(__arg) {}
 
     explicit BadDnsError(const char *__arg) : runtime_error(__arg) {}
+
     BadDnsError() : runtime_error("BadDnsError") {}
 };
-
 
 
 out_of_bound::out_of_bound(int line) : runtime_error(get_err_string(line)) {}
@@ -66,7 +69,13 @@ out_of_bound::out_of_bound(int line) : runtime_error(get_err_string(line)) {}
 class Cache;
 
 class Dns {
+
+
 public:
+    static std::unordered_set<std::string> polluted_domains;
+
+    static void load_polluted_domains(const std::string &config_filename);
+
     enum Sign : uint16_t {
         QR = 1 << 15,
         OpCode = 1 << 14 & 1 << 13 & 1 << 12 & 1 << 11,
@@ -165,6 +174,8 @@ public:
 
     bool GFW_mode = true;
 
+    bool use_localnet_dns_server = true;
+
     Dns *make_response_by_cache(Dns &dns, Cache &cache);
 
 private:
@@ -196,6 +207,8 @@ private:
 
 
 };
+
+std::unordered_set<std::string> Dns::polluted_domains;
 
 unordered_map<enum Dns::QType, string> Dns::QType2Name = {
         {A,     "A"},
@@ -282,6 +295,17 @@ void Dns::from_wire(char *buf, int len) {
         additional.Z = ntohs_ptr(ptr, upbound);
         additional.data_length = ntohs_ptr(ptr, upbound);
         additionals.push_back(additional);
+    }
+
+    if (0 == (signs & QR) and !questions.empty()) {
+        string domain = questions.front().name;
+        for (const auto &pattern : Dns::polluted_domains) {
+            if (fnmatch(pattern.c_str(), domain.c_str(), FNM_CASEFOLD) == 0) {
+                // Match
+                use_localnet_dns_server = false;
+                break;
+            }
+        }
     }
 }
 
@@ -410,7 +434,7 @@ ssize_t Dns::to_wire(char *buf, int n) {
     const char *upbound = buf + n;
     htons_ptr(ptr, id, upbound);
     htons_ptr(ptr, signs, upbound);
-    if (!(signs & QR) and GFW_mode) {
+    if (!(signs & QR) and GFW_mode and !use_localnet_dns_server) {
         htons_ptr(ptr, 2, upbound);
     } else {
         htons_ptr(ptr, questions.size(), upbound);
@@ -418,7 +442,7 @@ ssize_t Dns::to_wire(char *buf, int n) {
     htons_ptr(ptr, answers.size(), upbound);
     htons_ptr(ptr, 0, upbound);
     htons_ptr(ptr, additionals.size(), upbound);
-    if (!(signs & QR) and GFW_mode) {
+    if (!(signs & QR) and GFW_mode and !use_localnet_dns_server) {
         htons_ptr(ptr, 0xc012, upbound);
         htons_ptr(ptr, questions[0].Type, upbound);
         htons_ptr(ptr, questions[0].Class, upbound);
@@ -794,6 +818,27 @@ Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
     return nullptr;
 }
 
+// read the config file that contains the polluted domains
+void Dns::load_polluted_domains(const std::string &config_filename) {
+    std::ifstream fs;
+    fs.open(config_filename);
+    if (fs) {
+        string line;
+        while (!fs.eof()) {
+            std::getline(fs, line);
+            boost::trim(line);
+            if (!line.empty()) {
+                if ('#' == line[0]) continue;
+                if ('!' == line[0]) continue;
+                polluted_domains.insert(line);
+            }
+        }
+        fs.close();
+        return;
+    }
+    cerr << "config file (" << config_filename <<  ") was not opened !" << endl;
+}
+
 
 class Upstream {
 public:
@@ -829,7 +874,9 @@ int tfd;
 unordered_map<int, Upstream *> client_tcp_con;
 unordered_map<int, Upstream *> server_tcp_con;
 struct sockaddr_storage upserver_addr;
+struct sockaddr_storage localnet_server_addr;
 int upserver_sock;
+int localnet_server_sock;
 Cache cache;
 long last_timer = 0;
 
@@ -877,7 +924,7 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
     return true;
 }
 
-Upstream *check(char *buf, ssize_t &n, sockaddr *upserver_addr, socklen_t socklen, bool tcp) {
+Upstream *check(char *buf, ssize_t &n, bool tcp) {
     uint16_t up_id = ntohs(*(uint16_t *) buf);
     auto it = id_map.find(up_id);
     if (it != id_map.end()) {
@@ -912,7 +959,7 @@ Upstream *check(char *buf, ssize_t &n, sockaddr *upserver_addr, socklen_t sockle
         } catch (out_of_bound &err) {
             delete upstream;
             return nullptr;
-        } catch (BadDnsError){
+        } catch (BadDnsError) {
             delete upstream;
             return nullptr;
         }
@@ -961,7 +1008,8 @@ Upstream *check(char *buf, ssize_t &n, sockaddr *upserver_addr, socklen_t sockle
 
                     close(upstream->ser_fd);
 
-                    int upfd = socket(upserver_addr->sa_family, SOCK_STREAM, IPPROTO_TCP);
+                    int upfd;
+                    upfd = socket(upserver_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
                     if (upfd < 0) {
                         perror("Can not open socket ");
                         if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
@@ -971,7 +1019,7 @@ Upstream *check(char *buf, ssize_t &n, sockaddr *upserver_addr, socklen_t sockle
                     struct epoll_event ev;
                     ev.events = EPOLLET | EPOLLOUT | EPOLLRDHUP;
                     ev.data.fd = upfd;
-                    int ret = connect(upfd, (sockaddr *) upserver_addr, socklen);
+                    int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
                     if (ret < 0 and errno != EINPROGRESS) {
                         if (bDaemon) syslog(LOG_ERR, "connect failed %d : %s ", __LINE__, strerror(errno));
                         return nullptr;
@@ -979,7 +1027,15 @@ Upstream *check(char *buf, ssize_t &n, sockaddr *upserver_addr, socklen_t sockle
                     upstream->ser_fd = upfd;
                     server_tcp_con[upfd] = upstream;
                 } else {
-                    if (sendto(upserver_sock, buf, n, 0, (sockaddr *) upserver_addr, socklen) < 0) {
+                    if (upstream->dns1.use_localnet_dns_server) {
+                        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+                                   sizeof(localnet_server_addr)) < 0) {
+                            cerr << "send error : " << __LINE__ << strerror(errno) << endl;
+                            if (bDaemon)
+                                syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
+                        }
+                    } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
+                               0) {
                         cerr << "send error : " << __LINE__ << strerror(errno) << endl;
                         if (bDaemon) syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
                     }
@@ -1127,6 +1183,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    Dns::load_polluted_domains("pollution_domains.config");
+
     std::cout << "Start Server ..." << std::endl;
     if (bDaemon) {
         cout << "Enter daemon mode .." << endl;
@@ -1203,6 +1261,24 @@ int main(int argc, char *argv[]) {
     }
     setnonblocking(upserver_sock);
 
+    bzero(&localnet_server_addr, sizeof(localnet_server_addr));
+
+    if (inet_pton(AF_INET, "202.122.33.70", &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
+        localnet_server_addr.ss_family = AF_INET;
+        ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(53);
+    } else {
+        cerr << "local net dns server address resolve error" << endl;
+        exit(EXIT_FAILURE);
+    }
+
+    localnet_server_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+
+    if (localnet_server_sock < 0) {
+        perror("Can not open socket for localnet dns server");
+        exit(EXIT_FAILURE);
+    }
+    setnonblocking(localnet_server_sock);
+
     if (new_user) {
         struct passwd *pass = getpwnam(new_user);
         if (pass) {
@@ -1232,6 +1308,10 @@ int main(int argc, char *argv[]) {
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = upserver_sock;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, upserver_sock, &ev);
+
+    ev.events = EPOLLIN | EPOLLET;
+    ev.data.fd = localnet_server_sock;
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, localnet_server_sock, &ev);
 
     tfd = timerfd_create(CLOCK_MONOTONIC, 0);
     if (tfd == -1) {
@@ -1292,8 +1372,8 @@ int main(int argc, char *argv[]) {
                     } catch (out_of_bound &err) {
                         cerr << "Memory Access Error : " << err.what() << endl;
                         if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-                    } catch (BadDnsError){
-                         cerr << "Bad Dns "  << endl;
+                    } catch (BadDnsError) {
+                        cerr << "Bad Dns " << endl;
                     }
                     if (up->dns1.questions.empty()) {
                         delete up;
@@ -1341,9 +1421,16 @@ int main(int argc, char *argv[]) {
                             *(uint16_t *) buf = htons(up->up_id);
                         }
                         DEBUG("send udp request to server")
-                        if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
-                            0) {
-                            cerr << "send error" << endl;
+                        if (up->dns1.use_localnet_dns_server) {
+                            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+                                       sizeof(localnet_server_addr)) <
+                                0) {
+                                cerr << "send error : " << __LINE__ << endl;
+                                if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
+                            }
+                        } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
+                                          sizeof(upserver_addr)) < 0) {
+                            cerr << "send error  : " << __LINE__ << endl;
                             if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
                         }
                     }
@@ -1351,7 +1438,20 @@ int main(int argc, char *argv[]) {
             } else if (events[_n].data.fd == upserver_sock) {
                 while ((n = recv(upserver_sock, buf, max_udp_len, 0)) > 0) {
                     DEBUG("recv udp response from server")
-                    auto upstream = check(buf, n, (sockaddr *) &upserver_addr, sizeof(upserver_addr), false);
+                    auto upstream = check(buf, n, false);
+                    if (upstream == nullptr) continue;
+
+                    *(uint16_t *) buf = htons(upstream->cli_id);
+                    DEBUG("send udp response to client")
+                    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+                    id_map.erase(upstream->up_id);
+                    delete upstream;
+                    upstream = nullptr;
+                }
+            } else if (events[_n].data.fd == localnet_server_sock) {
+                while ((n = recv(localnet_server_sock, buf, max_udp_len, 0)) > 0) {
+                    DEBUG("recv udp response from localnet dns server")
+                    auto upstream = check(buf, n, false);
                     if (upstream == nullptr) continue;
 
                     *(uint16_t *) buf = htons(upstream->cli_id);
@@ -1393,8 +1493,8 @@ int main(int argc, char *argv[]) {
                         } catch (out_of_bound &err) {
                             cerr << "Memory Access Error : " << err.what() << endl;
                             if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-                        } catch (BadDnsError){
-                             cerr << "Bad Dns " << endl;
+                        } catch (BadDnsError) {
+                            cerr << "Bad Dns " << endl;
                         }
                         if (up->dns1.questions.empty()) {
                             delete up;
@@ -1491,8 +1591,7 @@ int main(int argc, char *argv[]) {
                         DEBUG("recv tcp response from server")
                         memcpy(buf + 2, up->buf, up->data_len);
 
-                        auto upstream = check(buf + 2, up->data_len, (sockaddr *) &upserver_addr,
-                                              sizeof(upserver_addr),
+                        auto upstream = check(buf + 2, up->data_len,
                                               true);
                         if (upstream == nullptr) continue;
                         *(uint16_t *) buf = htons(up->data_len);
@@ -1557,7 +1656,7 @@ int main(int argc, char *argv[]) {
                     last_timer = itimer.it_value.tv_sec;
                 }
             } else if (events[_n].data.fd == sfd) {
-                // need to check which signal was send
+                // need to check which signal was sent
                 if (bDaemon) syslog(LOG_INFO, "exit normally");
                 goto end;
             }
