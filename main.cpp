@@ -1364,6 +1364,7 @@ int main(int argc, char *argv[]) {
   sigemptyset(&mask);
   sigaddset(&mask, SIGINT);
   sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGUSR1);
 
   if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
     ostringstream os;
@@ -1380,6 +1381,7 @@ int main(int argc, char *argv[]) {
     if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
     exit(EXIT_FAILURE);
   }
+  setnonblocking(sfd);
   ev.events = EPOLLIN | EPOLLET;
   ev.data.fd = sfd;
   epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev);
@@ -1693,8 +1695,30 @@ int main(int argc, char *argv[]) {
         }
       } else if (events[_n].data.fd == sfd) {
         // need to check which signal was sent
-        if (bDaemon) syslog(LOG_INFO, "exit normally");
-        goto end;
+        ssize_t  ssize;
+        struct  signalfd_siginfo signalfdSiginfo;
+        for(;;){
+          ssize = read(sfd,&signalfdSiginfo, sizeof(struct signalfd_siginfo));
+          if (ssize != sizeof(struct signalfd_siginfo)){
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            cerr << "signalfd read error " << endl;
+            continue;
+          }
+          switch (signalfdSiginfo.ssi_signo){
+            case SIGUSR1:
+              cout << "reloading config file <pollution_domains.config> ..." << endl;
+              Dns::load_polluted_domains("pollution_domains.config");
+              cout << "reload complete !" << endl;
+              break;
+            case SIGTERM:
+            case SIGINT:
+              if (bDaemon) syslog(LOG_INFO, "exit normally");
+              goto end;
+            default:
+              cerr << "unexcepted signal (" << signalfdSiginfo.ssi_signo <<") " << endl;
+          }
+        }
+
       }
     }
   }
