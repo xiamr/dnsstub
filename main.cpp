@@ -1360,6 +1360,9 @@ int main(int argc, char *argv[]) {
     cache.set_timer_fd(cache_tfd);
   }
 
+  // ignore SIGPIPE to avoid program exit when write to socket whose reading end is closed
+  signal(SIGPIPE, SIG_IGN);
+
   sigset_t mask;
   sigemptyset(&mask);
   sigaddset(&mask, SIGINT);
