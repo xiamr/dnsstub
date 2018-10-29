@@ -320,8 +320,8 @@ void Dns::from_wire(char *buf, int len) {
 char *Dns::toName(string &origin_name, char *ptr, const char *buf, const char *upbound,
                   unordered_map<string, uint16_t> &str_map) {
   string name = origin_name;
-  name.erase(name.end()-1);
-  if (name.length() == 0){
+  name.erase(name.end() - 1);
+  if (name.length() == 0) {
     *ptr = '\0';
     ptr++;
     return ptr;
@@ -390,7 +390,7 @@ string Dns::getName(char *&ptr, char *buf, const char *upbound) {
       // compressed label
       if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
       locate = buf + 256 * (count & 0x3f) + *((uint8_t *) (ptr + 1));
-      if (!first)  name.append(1, '.');
+      if (!first) name.append(1, '.');
       else first = false;
       name += getName(locate, buf, upbound);
       ptr += 2;
@@ -401,7 +401,7 @@ string Dns::getName(char *&ptr, char *buf, const char *upbound) {
     }
     if (count > 0) {
       if (locate + count > upbound) throw out_of_bound(__LINE__);
-      if (!first)  name.append(1, '.');
+      if (!first) name.append(1, '.');
       else first = false;
       name.append(locate + 1, count);
     } else {
@@ -859,7 +859,8 @@ void Dns::load_polluted_domains(const std::string &config_filename) {
 }
 
 bool Dns::isDomainValid(const std::string &domain) {
-  static auto validDomainPattern = std::regex("^([a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\\.$|\\.)");
+  static auto validDomainPattern = std::regex(
+      "^([a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\\.$|\\.)");
   return std::regex_match(domain, validDomainPattern);
 }
 
@@ -899,6 +900,8 @@ unordered_map<int, Upstream *> client_tcp_con;
 unordered_map<int, Upstream *> server_tcp_con;
 struct sockaddr_storage upserver_addr;
 struct sockaddr_storage localnet_server_addr;
+
+
 int upserver_sock;
 int localnet_server_sock;
 Cache cache;
@@ -1153,14 +1156,354 @@ void read_buf(int fd, char *buf, Upstream *up) {
 }
 
 
-int main(int argc, char *argv[]) {
+void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr, socklen_t &socklen, epoll_event &ev) {
+  for (;;) {
+    int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
+    if (newcon < 0) {
+      if (errno != EAGAIN)
+        perror("accept error :");
+      if (bDaemon) syslog(LOG_WARNING, "accept error %d : %s", __LINE__, strerror(errno));
+      break;
+    }
+    DEBUG("new tcp connection from client")
+    // Accept new connnection from client
+    ev.events = EPOLLET | EPOLLIN | EPOLLERR;
+    ev.data.fd = newcon;
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, newcon, &ev);
+    auto *up = new Upstream();
+    memcpy(&up->cliaddr, &cliaddr, socklen);
+    up->socklen = socklen;
+    up->cli_fd = newcon;
+    client_tcp_con[newcon] = up;
+  }
+}
 
-  char *new_user = nullptr;
-  char *local_address = nullptr;
-  uint16_t local_port = 0;
-  char *remote_address = nullptr;
-  char *localnet_server_address = nullptr;
+void readLocalServerResponse(int server_sock, char *buf) {
+  ssize_t n;
+  while ((n = recv(localnet_server_sock, buf, max_udp_len, 0)) > 0) {
+    DEBUG("recv udp response from localnet dns server")
+    auto upstream = check(buf, n, false);
+    if (upstream == nullptr) continue;
 
+    *(uint16_t *) buf = htons(upstream->cli_id);
+    DEBUG("send udp response to client")
+    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+    id_map.erase(upstream->up_id);
+    delete upstream;
+    upstream = nullptr;
+  }
+}
+
+void readRemoteServerResponse(int server_sock, char *buf) {
+  ssize_t n;
+  while ((n = recv(upserver_sock, buf, max_udp_len, 0)) > 0) {
+    DEBUG("recv udp response from server")
+    auto upstream = check(buf, n, false);
+    if (upstream == nullptr) continue;
+
+    *(uint16_t *) buf = htons(upstream->cli_id);
+    DEBUG("send udp response to client")
+    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+    id_map.erase(upstream->up_id);
+    delete upstream;
+    upstream = nullptr;
+  }
+}
+
+void
+readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen, long &queryTotalCounts) {
+  ssize_t n;
+  while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
+    DEBUG("new udp request from client")
+    queryTotalCounts++;
+    if (queryTotalCounts % 1000 == 0) cout << "Total query counts = " << queryTotalCounts << endl;
+    auto up = new Upstream;
+    try {
+      up->dns1.from_wire(buf, n);
+    } catch (out_of_bound &err) {
+      cerr << "Memory Access Error : " << err.what() << endl;
+      if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+    } catch (BadDnsError) {
+      cerr << "Bad Dns " << endl;
+    }
+    if (up->dns1.questions.empty()) {
+      delete up;
+      continue;
+    }
+    Dns *response = nullptr;
+    if (ipv6_first) {
+      if (up->dns1.questions[0].Type == Dns::A
+          and !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
+        up->dns1.questions[0].Type = Dns::AAAA;
+        response = up->dns1.make_response_by_cache(up->dns1, cache);
+        if (response) response->questions[0].Type = Dns::A;
+        up->dns1.questions[0].Type = Dns::A;
+      } else {
+        response = up->dns1.make_response_by_cache(up->dns1, cache);
+      }
+    } else {
+      response = up->dns1.make_response_by_cache(up->dns1, cache);
+    }
+    if (response) {
+      try {
+        n = response->to_wire(buf, max_udp_len);
+      } catch (out_of_bound &err) {
+        cerr << "Memory Access Error : " << err.what() << endl;
+        if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+      }
+      DEBUG("send response to client from cache")
+      sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
+      delete response;
+      delete up;
+    } else {
+      memcpy(&up->cliaddr, &cliaddr, socklen);
+      up->socklen = socklen;
+      if (!add_upstream(buf, n, up)) continue;
+      if (ipv6_first or gfw_mode) {
+        try {
+          n = up->dns1.to_wire(buf, max_udp_len);
+        } catch (out_of_bound &err) {
+          cerr << "Memory Access Error : " << err.what() << endl;
+          if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+          delete up;
+          continue;
+        }
+      } else {
+        *(uint16_t *) buf = htons(up->up_id);
+      }
+      DEBUG("send udp request to server")
+      if (up->dns1.use_localnet_dns_server) {
+        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+                   sizeof(localnet_server_addr)) <
+            0) {
+          cerr << "send error : " << __LINE__ << endl;
+          if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
+        }
+      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
+                        sizeof(upserver_addr)) < 0) {
+        cerr << "send error  : " << __LINE__ << endl;
+        if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
+      }
+    }
+  }
+}
+
+void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, long &queryTotalCounts) {
+  // Read query request from tcp client
+  ssize_t n;
+  auto up = client_tcp_con[event.data.fd];
+  if (event.events & EPOLLIN) {
+    DEBUG("tcp request data from client")
+    read_buf(event.data.fd, buf, up);
+    if (up->data_len == up->buf_len != 0) {
+      try {
+        up->dns1.from_wire(up->buf, up->buf_len);
+      } catch (out_of_bound &err) {
+        cerr << "Memory Access Error : " << err.what() << endl;
+        if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+      } catch (BadDnsError) {
+        cerr << "Bad Dns " << endl;
+      }
+      if (up->dns1.questions.empty()) {
+        delete up;
+        close(up->cli_fd);
+        client_tcp_con.erase(up->cli_fd);
+        epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
+        return;
+      }
+      queryTotalCounts++;
+      if (queryTotalCounts % 1000 == 0) std::cout << "Total query counts = " << queryTotalCounts << std::endl;
+      Dns *response = nullptr;
+      if (ipv6_first) {
+        if (up->dns1.questions[0].Type == Dns::A and
+            !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
+          up->dns1.questions[0].Type = Dns::AAAA;
+          response = up->dns1.make_response_by_cache(up->dns1, cache);
+          if (response) response->questions[0].Type = Dns::A;
+          up->dns1.questions[0].Type = Dns::A;
+        } else {
+          response = up->dns1.make_response_by_cache(up->dns1, cache);
+        }
+      } else {
+        response = up->dns1.make_response_by_cache(up->dns1, cache);
+      }
+      if (response) {
+        try {
+          n = response->to_wire(buf + 2, max_udp_len - 2);
+        } catch (out_of_bound &err) {
+          cerr << "Memory Access Error : " << err.what() << endl;
+          if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+        }
+        *(uint16_t *) buf = htons(n);
+        DEBUG("send tcp response to client from cache")
+        write(up->cli_fd, buf, n + 2);
+        close(up->cli_fd);
+        client_tcp_con.erase(up->cli_fd);
+        epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
+        delete up;
+        delete response;
+
+      } else {
+        if (!add_upstream(up->buf, up->buf_len, up)) return;
+        int upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+        if (upfd < 0) {
+          perror("Can not open socket ");
+          if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+        }
+        struct epoll_event ev;
+        ev.events = EPOLLET | EPOLLOUT | EPOLLERR;
+        ev.data.fd = upfd;
+        epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
+        DEBUG("new tcp connnect to server")
+        int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+        if (ret < 0 and errno != EINPROGRESS) {
+          syslog(LOG_ERR, "connect to up server error %d : %s", __LINE__, strerror(errno));
+        }
+        up->ser_fd = upfd;
+        server_tcp_con[upfd] = up;
+      }
+    }
+  } else if (event.events & EPOLLERR) {
+    DEBUG("tcp connection errror. close it")
+    close(event.data.fd);
+    epoll_ctl(epollfd, EPOLL_CTL_DEL, event.data.fd, nullptr);
+    delete up;
+    client_tcp_con.erase(event.data.fd);
+  }
+
+}
+
+void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
+  ssize_t n;
+  int upfd = event.data.fd;
+  auto *up = server_tcp_con[upfd];
+  if (event.events & EPOLLOUT) {
+    // Connect succeed!
+    DEBUG("tcp connection established")
+
+    n = up->dns1.to_wire(buf + 2, max_udp_len - 2);
+    *(uint16_t *) buf = htons(n);
+    DEBUG("send tcp request to server")
+    ssize_t siz = write(upfd, buf, n + 2);
+    if (siz != n + 2) {
+      perror("up write ");
+      return;
+    }
+    struct epoll_event ev;
+    ev.events = EPOLLET | EPOLLIN | EPOLLERR;
+    ev.data.fd = upfd;
+    epoll_ctl(epollfd, EPOLL_CTL_MOD, upfd, &ev);
+    delete[] up->buf;
+    up->buf_len = up->data_len = 0;
+    up->buf = nullptr;
+    up->part_len = false;
+  } else if (event.events & EPOLLIN) {
+    read_buf(upfd, buf, up);
+    if (up->data_len == up->buf_len and up->buf_len != 0) {
+      DEBUG("recv tcp response from server")
+      memcpy(buf + 2, up->buf, up->data_len);
+
+      auto upstream = check(buf + 2, up->data_len, true);
+      if (upstream == nullptr)
+        return;
+      *(uint16_t *) buf = htons(up->data_len);
+      *(uint16_t *) (buf + 2) = htons(upstream->cli_id);
+      DEBUG("send tcp response to client")
+      write(upstream->cli_fd, buf, up->data_len + 2);
+      close(upstream->cli_fd);
+      close(upstream->ser_fd);
+      client_tcp_con.erase(upstream->cli_fd);
+      server_tcp_con.erase(upstream->ser_fd);
+      epoll_ctl(epollfd, EPOLL_CTL_DEL, upstream->cli_fd, nullptr);
+      epoll_ctl(epollfd, EPOLL_CTL_DEL, upstream->ser_fd, nullptr);
+      id_map.erase(upstream->up_id);
+      delete upstream;
+      upstream = nullptr;
+    }
+  } else if (event.events & EPOLLERR) {
+    DEBUG("tcp connection error. close ...")
+    close(up->cli_fd);
+    close(up->ser_fd);
+    client_tcp_con.erase(up->cli_fd);
+    server_tcp_con.erase(up->ser_fd);
+    epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
+    epoll_ctl(epollfd, EPOLL_CTL_DEL, up->ser_fd, nullptr);
+    id_map.erase(up->up_id);
+    delete up;
+  }
+}
+
+/**
+ *
+ * @param sfd
+ * @return true means to exit the program
+ */
+bool signalHandler(int sfd) {
+  ssize_t ssize;
+  struct signalfd_siginfo signalfdSiginfo;
+  for (;;) {
+    ssize = read(sfd, &signalfdSiginfo, sizeof(struct signalfd_siginfo));
+    if (ssize != sizeof(struct signalfd_siginfo)) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+      if (errno == EINTR) continue;
+      cerr << "signalfd read error " << endl;
+      return false;
+    }
+    switch (signalfdSiginfo.ssi_signo) {
+      case SIGUSR1:
+        cout << "reloading config file <pollution_domains.config> ..." << endl;
+        Dns::load_polluted_domains("pollution_domains.config");
+        cout << "reload complete !" << endl;
+        break;
+      case SIGTERM:
+      case SIGINT:
+        if (bDaemon) syslog(LOG_INFO, "exit normally");
+        return true;
+        break;
+      default:
+        cerr << "unexcepted signal (" << signalfdSiginfo.ssi_signo << ") " << endl;
+    }
+  }
+  return false;
+}
+
+void reqMessageTimeoutHandler() {
+  DEBUG("request data structure time out")
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  while (oldest_up) {
+    if (oldest_up->time.tv_sec + 60 < now.tv_sec) {
+      auto up = oldest_up;
+      oldest_up = up->next;
+      if (oldest_up) oldest_up->prev = nullptr;
+      id_map.erase(up->up_id);
+      client_tcp_con.erase(up->cli_fd);
+      server_tcp_con.erase(up->ser_fd);
+      if (up == newest_up) {
+        newest_up = nullptr;
+      }
+      delete up;
+      up = nullptr;
+    } else {
+      break;
+    }
+  }
+  if (oldest_up) {
+    itimer.it_value.tv_sec = oldest_up->time.tv_sec + 60; // 60 secs
+    itimer.it_value.tv_nsec = oldest_up->time.tv_nsec;
+  } else {
+    itimer.it_value.tv_sec = 0;
+    itimer.it_value.tv_nsec = 0;
+  }
+  if (itimer.it_value.tv_sec - last_timer > 60) {
+    timerfd_settime(tfd, TFD_TIMER_ABSTIME, &itimer, nullptr);
+    last_timer = itimer.it_value.tv_sec;
+  }
+}
+
+
+void parseArguments(int argc, char *argv[], char *&localnet_server_address, char *&local_address, uint16_t &local_port,
+                    char *&remote_address, char *&new_user) {
   int opt;
   while ((opt = getopt(argc, argv, "6cgtu:dl:p:r:b:")) != -1) {
     switch (opt) {
@@ -1212,6 +1555,19 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
+}
+
+
+int main(int argc, char *argv[]) {
+
+  char *new_user = nullptr;
+  char *local_address = nullptr;
+  uint16_t local_port = 0;
+  char *remote_address = nullptr;
+  char *localnet_server_address = nullptr;
+
+  parseArguments(argc, argv, localnet_server_address, local_address, local_port, remote_address, new_user);
+
   Dns::load_polluted_domains("pollution_domains.config");
 
   std::cout << "Start Server ..." << std::endl;
@@ -1236,8 +1592,7 @@ int main(int argc, char *argv[]) {
     if (bDaemon) syslog(LOG_ERR, "Local addresss(%s) is invaild", local_address);
     exit(EXIT_FAILURE);
   }
-  int server_sock = socket(server_addr.ss_family, SOCK_DGRAM, IPPROTO_UDP);
-  setnonblocking(server_sock);
+  int server_sock = socket(server_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
   if (server_sock < 0) {
     perror("Can not open socket ");
     if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
@@ -1250,8 +1605,7 @@ int main(int argc, char *argv[]) {
   }
   int server_sock_tcp = 0;
   if (enable_tcp) {
-    server_sock_tcp = socket(server_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
-    setnonblocking(server_sock_tcp);
+    server_sock_tcp = socket(server_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
     if (server_sock_tcp < 0) {
       perror("Can not open socket ");
       if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
@@ -1282,13 +1636,12 @@ int main(int argc, char *argv[]) {
     if (bDaemon) syslog(LOG_ERR, "Remote addresss(%s) is invaild", remote_address);
     exit(EXIT_FAILURE);
   }
-  upserver_sock = socket(upserver_addr.ss_family, SOCK_DGRAM, IPPROTO_UDP);
+  upserver_sock = socket(upserver_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
   if (upserver_sock < 0) {
     perror("Can not open socket ");
     if (bDaemon) syslog(LOG_ERR, "Can not open socket remote up stream server communication");
     exit(EXIT_FAILURE);
   }
-  setnonblocking(upserver_sock);
 
   bzero(&localnet_server_addr, sizeof(localnet_server_addr));
 
@@ -1300,13 +1653,12 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  localnet_server_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  localnet_server_sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 
   if (localnet_server_sock < 0) {
     perror("Can not open socket for localnet dns server");
     exit(EXIT_FAILURE);
   }
-  setnonblocking(localnet_server_sock);
 
   if (new_user) {
     struct passwd *pass = getpwnam(new_user);
@@ -1323,7 +1675,7 @@ int main(int argc, char *argv[]) {
 
   struct epoll_event ev, events[100];
   int epollfd;
-  epollfd = epoll_create(100);
+  epollfd = epoll_create1(EPOLL_CLOEXEC);
   ev.events = EPOLLIN | EPOLLET;
   ev.data.fd = server_sock;
   epoll_ctl(epollfd, EPOLL_CTL_ADD, server_sock, &ev);
@@ -1374,17 +1726,16 @@ int main(int argc, char *argv[]) {
     os << "sigprocmask" << strerror(errno) << endl;
     cerr << os.str();
     if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
-    exit(EXIT_FAILURE);
+    //exit(EXIT_FAILURE);
   }
-  int sfd = signalfd(-1, &mask, 0);
+  int sfd = signalfd(-1, &mask, SFD_NONBLOCK);
   if (sfd == -1) {
     ostringstream os;
     os << "signalfd" << strerror(errno) << endl;
     cerr << os.str();
     if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
-    exit(EXIT_FAILURE);
+    //exit(EXIT_FAILURE);
   }
-  setnonblocking(sfd);
   ev.events = EPOLLIN | EPOLLET;
   ev.data.fd = sfd;
   epoll_ctl(epollfd, EPOLL_CTL_ADD, sfd, &ev);
@@ -1393,334 +1744,33 @@ int main(int argc, char *argv[]) {
   itimer.it_interval.tv_nsec = 0;
   itimer.it_interval.tv_sec = 0;
 
-
-
   long queryTotalCounts = 0;
 
   for (;;) {
     int nfds = epoll_wait(epollfd, events, 100, -1);
     for (int _n = 0; _n < nfds; ++_n) {
       if (events[_n].data.fd == server_sock) {
-        while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
-          DEBUG("new udp request from client")
-          queryTotalCounts++;
-          if (queryTotalCounts % 1000 == 0) std::cout << "Total query counts = " << queryTotalCounts << std::endl;
-          auto up = new Upstream;
-          try {
-            up->dns1.from_wire(buf, n);
-          } catch (out_of_bound &err) {
-            cerr << "Memory Access Error : " << err.what() << endl;
-            if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-          } catch (BadDnsError) {
-            cerr << "Bad Dns " << endl;
-          }
-          if (up->dns1.questions.empty()) {
-            delete up;
-            continue;
-          }
-          Dns *response = nullptr;
-          if (ipv6_first) {
-            if (up->dns1.questions[0].Type == Dns::A
-                and !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
-              up->dns1.questions[0].Type = Dns::AAAA;
-              response = up->dns1.make_response_by_cache(up->dns1, cache);
-              if (response) response->questions[0].Type = Dns::A;
-              up->dns1.questions[0].Type = Dns::A;
-            } else {
-              response = up->dns1.make_response_by_cache(up->dns1, cache);
-            }
-          } else {
-            response = up->dns1.make_response_by_cache(up->dns1, cache);
-          }
-          if (response) {
-            try {
-              n = response->to_wire(buf, max_udp_len);
-            } catch (out_of_bound &err) {
-              cerr << "Memory Access Error : " << err.what() << endl;
-              if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-            }
-            DEBUG("send response to client from cache")
-            sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
-            delete response;
-            delete up;
-          } else {
-            memcpy(&up->cliaddr, &cliaddr, socklen);
-            up->socklen = socklen;
-            if (!add_upstream(buf, n, up)) continue;
-            if (ipv6_first or gfw_mode) {
-              try {
-                n = up->dns1.to_wire(buf, max_udp_len);
-              } catch (out_of_bound &err) {
-                cerr << "Memory Access Error : " << err.what() << endl;
-                if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-                delete up;
-                continue;
-              }
-            } else {
-              *(uint16_t *) buf = htons(up->up_id);
-            }
-            DEBUG("send udp request to server")
-            if (up->dns1.use_localnet_dns_server) {
-              if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
-                         sizeof(localnet_server_addr)) <
-                  0) {
-                cerr << "send error : " << __LINE__ << endl;
-                if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
-              }
-            } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
-                              sizeof(upserver_addr)) < 0) {
-              cerr << "send error  : " << __LINE__ << endl;
-              if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
-            }
-          }
-        }
+        readIncomeQuery(server_sock, buf, cliaddr, socklen, queryTotalCounts);
       } else if (events[_n].data.fd == upserver_sock) {
-        while ((n = recv(upserver_sock, buf, max_udp_len, 0)) > 0) {
-          DEBUG("recv udp response from server")
-          auto upstream = check(buf, n, false);
-          if (upstream == nullptr) continue;
-
-          *(uint16_t *) buf = htons(upstream->cli_id);
-          DEBUG("send udp response to client")
-          sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
-          id_map.erase(upstream->up_id);
-          delete upstream;
-          upstream = nullptr;
-        }
+        readRemoteServerResponse(server_sock, buf);
       } else if (events[_n].data.fd == localnet_server_sock) {
-        while ((n = recv(localnet_server_sock, buf, max_udp_len, 0)) > 0) {
-          DEBUG("recv udp response from localnet dns server")
-          auto upstream = check(buf, n, false);
-          if (upstream == nullptr) continue;
-
-          *(uint16_t *) buf = htons(upstream->cli_id);
-          DEBUG("send udp response to client")
-          sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
-          id_map.erase(upstream->up_id);
-          delete upstream;
-          upstream = nullptr;
-        }
+        readLocalServerResponse(server_sock, buf);
       } else if (enable_tcp and events[_n].data.fd == server_sock_tcp) {
-        for (;;) {
-          int newcon = accept(server_sock_tcp, (sockaddr *) &cliaddr, &socklen);
-          if (newcon < 0) {
-            if (errno != EAGAIN)
-              perror("accept error :");
-            if (bDaemon) syslog(LOG_WARNING, "accept error %d : %s", __LINE__, strerror(errno));
-            break;
-          }
-          DEBUG("new tcp connection from client")
-          // Accept new connnection from client
-          setnonblocking(newcon);
-          ev.events = EPOLLET | EPOLLIN | EPOLLERR;
-          ev.data.fd = newcon;
-          epoll_ctl(epollfd, EPOLL_CTL_ADD, newcon, &ev);
-          auto *up = new Upstream();
-          memcpy(&up->cliaddr, &cliaddr, socklen);
-          up->socklen = socklen;
-          up->cli_fd = newcon;
-          client_tcp_con[newcon] = up;
-        }
+        acceptTcpIncome(server_sock_tcp, epollfd, cliaddr, socklen, ev);
       } else if (enable_tcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
-        auto up = client_tcp_con[events[_n].data.fd];
-        if (events[_n].events & EPOLLIN) {
-          DEBUG("tcp request data from client")
-          read_buf(events[_n].data.fd, buf, up);
-          queryTotalCounts++;
-          if (queryTotalCounts % 1000 == 0) std::cout << "Total query counts = " << queryTotalCounts << std::endl;
-          if (up->data_len == up->buf_len != 0) {
-            try {
-              up->dns1.from_wire(up->buf, up->buf_len);
-            } catch (out_of_bound &err) {
-              cerr << "Memory Access Error : " << err.what() << endl;
-              if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-            } catch (BadDnsError) {
-              cerr << "Bad Dns " << endl;
-            }
-            if (up->dns1.questions.empty()) {
-              delete up;
-              close(up->cli_fd);
-              client_tcp_con.erase(up->cli_fd);
-              epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
-              continue;
-            }
-            Dns *response = nullptr;
-            if (ipv6_first) {
-              if (up->dns1.questions[0].Type == Dns::A and
-                  !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
-                up->dns1.questions[0].Type = Dns::AAAA;
-                response = up->dns1.make_response_by_cache(up->dns1, cache);
-                if (response) response->questions[0].Type = Dns::A;
-                up->dns1.questions[0].Type = Dns::A;
-              } else {
-                response = up->dns1.make_response_by_cache(up->dns1, cache);
-              }
-            } else {
-              response = up->dns1.make_response_by_cache(up->dns1, cache);
-            }
-            if (response) {
-              try {
-                n = response->to_wire(buf + 2, max_udp_len - 2);
-              } catch (out_of_bound &err) {
-                cerr << "Memory Access Error : " << err.what() << endl;
-                if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-              }
-              *(uint16_t *) buf = htons(n);
-              DEBUG("send tcp response to client from cache")
-              write(up->cli_fd, buf, n + 2);
-              close(up->cli_fd);
-              client_tcp_con.erase(up->cli_fd);
-              epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
-              delete up;
-              delete response;
-
-            } else {
-              if (!add_upstream(up->buf, up->buf_len, up)) continue;
-              int upfd = socket(upserver_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
-              if (upfd < 0) {
-                perror("Can not open socket ");
-                if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
-                exit(EXIT_FAILURE);
-              }
-              setnonblocking(upfd);
-              ev.events = EPOLLET | EPOLLOUT | EPOLLERR;
-              ev.data.fd = upfd;
-              epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
-              DEBUG("new tcp connnect to server")
-              int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
-              if (ret < 0 and errno != EINPROGRESS) {
-                syslog(LOG_ERR, "connect to up server error %d : %s", __LINE__, strerror(errno));
-                return EXIT_FAILURE;
-              }
-              up->ser_fd = upfd;
-              server_tcp_con[upfd] = up;
-            }
-          }
-        } else if (events[_n].events & EPOLLERR) {
-          DEBUG("tcp connection errror. close it")
-          close(events[_n].data.fd);
-          epoll_ctl(epollfd, EPOLL_CTL_DEL, events[_n].data.fd, nullptr);
-          delete up;
-          client_tcp_con.erase(events[_n].data.fd);
-        }
-
+        readIncomeTcpQuery(epollfd, buf, events[_n], queryTotalCounts);
       } else if (enable_tcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
-        int upfd = events[_n].data.fd;
-        auto *up = server_tcp_con[upfd];
-        if (events[_n].events & EPOLLOUT) {
-          // Connect succeed!
-          DEBUG("tcp connection established")
-
-          n = up->dns1.to_wire(buf + 2, max_udp_len - 2);
-          *(uint16_t *) buf = htons(n);
-          DEBUG("send tcp request to server")
-          ssize_t siz = write(upfd, buf, n + 2);
-          if (siz != n + 2) {
-            perror("up write ");
-            return EXIT_FAILURE;
-          }
-          ev.events = EPOLLET | EPOLLIN | EPOLLERR;
-          ev.data.fd = upfd;
-          epoll_ctl(epollfd, EPOLL_CTL_MOD, upfd, &ev);
-          delete[] up->buf;
-          up->buf_len = up->data_len = 0;
-          up->buf = nullptr;
-          up->part_len = false;
-        } else if (events[_n].events & EPOLLIN) {
-          read_buf(upfd, buf, up);
-          if (up->data_len == up->buf_len and up->buf_len != 0) {
-            DEBUG("recv tcp response from server")
-            memcpy(buf + 2, up->buf, up->data_len);
-
-            auto upstream = check(buf + 2, up->data_len,
-                                  true);
-            if (upstream == nullptr) continue;
-            *(uint16_t *) buf = htons(up->data_len);
-            *(uint16_t *) (buf + 2) = htons(upstream->cli_id);
-            DEBUG("send tcp response to client")
-            write(upstream->cli_fd, buf, up->data_len + 2);
-            close(upstream->cli_fd);
-            close(upstream->ser_fd);
-            client_tcp_con.erase(upstream->cli_fd);
-            server_tcp_con.erase(upstream->ser_fd);
-            epoll_ctl(epollfd, EPOLL_CTL_DEL, upstream->cli_fd, nullptr);
-            epoll_ctl(epollfd, EPOLL_CTL_DEL, upstream->ser_fd, nullptr);
-            id_map.erase(upstream->up_id);
-            delete upstream;
-            upstream = nullptr;
-          }
-        } else if (events[_n].events & EPOLLERR) {
-          DEBUG("tcp connection error. close ...")
-          close(up->cli_fd);
-          close(up->ser_fd);
-          client_tcp_con.erase(up->cli_fd);
-          server_tcp_con.erase(up->ser_fd);
-          epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
-          epoll_ctl(epollfd, EPOLL_CTL_DEL, up->ser_fd, nullptr);
-          id_map.erase(up->up_id);
-          delete up;
-        }
+        HandleServerSideTcp(epollfd, buf, events[_n]);
       } else if (enable_cache and events[_n].data.fd == cache_tfd) {
         DEBUG("cache time out")
         cache.timeout();
 
       } else if (events[_n].data.fd == tfd) {
-        DEBUG("request data structure time out")
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        while (oldest_up) {
-          if (oldest_up->time.tv_sec + 60 < now.tv_sec) {
-            auto up = oldest_up;
-            oldest_up = up->next;
-            if (oldest_up) oldest_up->prev = nullptr;
-            id_map.erase(up->up_id);
-            client_tcp_con.erase(up->cli_fd);
-            server_tcp_con.erase(up->ser_fd);
-            if (up == newest_up) {
-              newest_up = nullptr;
-            }
-            delete up;
-            up = nullptr;
-          } else {
-            break;
-          }
-        }
-        if (oldest_up) {
-          itimer.it_value.tv_sec = oldest_up->time.tv_sec + 60; // 60 secs
-          itimer.it_value.tv_nsec = oldest_up->time.tv_nsec;
-        } else {
-          itimer.it_value.tv_sec = 0;
-          itimer.it_value.tv_nsec = 0;
-        }
-        if (itimer.it_value.tv_sec - last_timer > 60) {
-          timerfd_settime(tfd, TFD_TIMER_ABSTIME, &itimer, nullptr);
-          last_timer = itimer.it_value.tv_sec;
-        }
+        reqMessageTimeoutHandler();
       } else if (events[_n].data.fd == sfd) {
         // need to check which signal was sent
-        ssize_t  ssize;
-        struct  signalfd_siginfo signalfdSiginfo;
-        for(;;){
-          ssize = read(sfd,&signalfdSiginfo, sizeof(struct signalfd_siginfo));
-          if (ssize != sizeof(struct signalfd_siginfo)){
-            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
-            cerr << "signalfd read error " << endl;
-            continue;
-          }
-          switch (signalfdSiginfo.ssi_signo){
-            case SIGUSR1:
-              cout << "reloading config file <pollution_domains.config> ..." << endl;
-              Dns::load_polluted_domains("pollution_domains.config");
-              cout << "reload complete !" << endl;
-              break;
-            case SIGTERM:
-            case SIGINT:
-              if (bDaemon) syslog(LOG_INFO, "exit normally");
-              goto end;
-            default:
-              cerr << "unexcepted signal (" << signalfdSiginfo.ssi_signo <<") " << endl;
-          }
-        }
+        bool exitFlags = signalHandler(sfd);
+        if (exitFlags) goto end;
 
       }
     }
@@ -1732,6 +1782,11 @@ int main(int argc, char *argv[]) {
   close(epollfd);
   close(server_sock);
   close(upserver_sock);
-  cerr << "EXIT_SUCCESS" << endl;
+  std::cout << "EXIT_SUCCESS" << std::endl;
   return EXIT_SUCCESS;
 }
+
+
+
+
+
