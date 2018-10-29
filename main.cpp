@@ -1033,17 +1033,14 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         id_map.erase(it);
 
         if (tcp) {
-
           close(upstream->ser_fd);
-
           int upfd;
-          upfd = socket(upserver_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
+          upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
           if (upfd < 0) {
             perror("Can not open socket ");
             if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
             exit(EXIT_FAILURE);
           }
-          setnonblocking(upfd);
           struct epoll_event ev;
           ev.events = EPOLLET | EPOLLOUT | EPOLLRDHUP;
           ev.data.fd = upfd;
