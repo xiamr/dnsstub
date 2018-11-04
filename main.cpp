@@ -542,7 +542,7 @@ uint16_t get_id() {
 
 void print_usage(char *argv[]) {
   cerr << "Usage: " << argv[0]
-       << " [-d] [-u user] [-6] [-g] [-t] [-c] -l local_address -p local_port -b localnet_server_addresss -r remote_address"
+       << " [-d] [-u user] [-6] [-g] [-t] [-c] -s statistics_file -l local_address -p local_port -b localnet_server_addresss -r remote_address"
        << endl;
   cerr << "-6 : ipv6 first" << endl;
   cerr << "-d : daemon mode" << endl;
