@@ -25,6 +25,7 @@
 #include <fnmatch.h>
 #include <fstream>
 #include <regex>
+#include <functional>
 #include <boost/algorithm/string.hpp>
 
 using namespace std;
@@ -108,6 +109,10 @@ public:
     string name;
     enum QType Type;
     enum QClass Class;
+
+    bool operator==(const Question &q) const {
+      return this->name == q.name and this->Type == q.Type and this->Class == q.Class;
+    }
   };
 
   class Answer {
@@ -907,6 +912,61 @@ int localnet_server_sock;
 Cache cache;
 long last_timer = 0;
 
+class DnsQueryStatistics {
+  struct KeyHasher {
+    std::size_t operator()(const Dns::Question& t) const {
+      return ((std::hash<std::string>()(t.name)
+          ^(hash<uint16_t>()(t.Class) << 1)) >> 1)
+          ^(hash<uint16_t>()(t.Type) << 1);
+    }
+  };
+
+  std::unordered_map<Dns::Question, long, KeyHasher> _statistics;
+  std::string statisticsFileName;
+public:
+  explicit DnsQueryStatistics(const std::string &statisticsFileName) :
+  statisticsFileName(statisticsFileName),
+  _statistics(){
+  }
+
+  void countNewQuery(const Dns &dns) {
+    auto iterator = _statistics.find(dns.questions.front());
+    if (iterator != _statistics.end()) {
+      (*iterator).second++;
+    } else {
+      _statistics[dns.questions.front()] = 1;
+    }
+  }
+
+  void printStatisticsInfos() {
+    std::ostream *os = nullptr;
+    if (statisticsFileName.empty()) {
+      os = &(std::cout);
+    } else {
+      auto ofs = new std::ofstream();
+      os = ofs;
+      ofs->open(statisticsFileName);
+      if (ofs->fail()) {
+        std::cerr << "error opening statisticsInfo file <" << statisticsFileName << "> !" << std::endl;
+        delete ofs;
+        return;
+      }
+    }
+    *os << "------------ statistics ------------------------" << endl;
+
+    *os << "Count\tClass\tType\t\tName" << std::endl;
+    for (auto &item : _statistics) {
+      auto &q = item.first;
+      *os << item.second << "\t\t" << Dns::QClass2Name[q.Class] << "\t\t" << Dns::QType2Name[q.Type]
+          << "\t\t" << q.name << endl;
+    }
+    *os << "------------------------------------------------" << endl;
+    if (typeid(*os) == typeid(std::ofstream)){
+      delete os;
+    }
+  }
+};
+
 bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   if (upstream->dns1.questions.empty()) {
     delete upstream;
@@ -1208,12 +1268,12 @@ void readRemoteServerResponse(int server_sock, char *buf) {
 }
 
 void
-readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen, long &queryTotalCounts) {
+readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
+    DnsQueryStatistics &statistics) {
   ssize_t n;
   while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
     DEBUG("new udp request from client")
-    queryTotalCounts++;
-    if (queryTotalCounts % 1000 == 0) cout << "Total query counts = " << queryTotalCounts << endl;
+
     auto up = new Upstream;
     try {
       up->dns1.from_wire(buf, n);
@@ -1227,6 +1287,7 @@ readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t
       delete up;
       continue;
     }
+    statistics.countNewQuery(up->dns1);
     Dns *response = nullptr;
     if (ipv6_first) {
       if (up->dns1.questions[0].Type == Dns::A
@@ -1285,7 +1346,7 @@ readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t
   }
 }
 
-void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, long &queryTotalCounts) {
+void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQueryStatistics &statistics) {
   // Read query request from tcp client
   ssize_t n;
   auto up = client_tcp_con[event.data.fd];
@@ -1308,8 +1369,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, long &
         epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
         return;
       }
-      queryTotalCounts++;
-      if (queryTotalCounts % 1000 == 0) std::cout << "Total query counts = " << queryTotalCounts << std::endl;
+      statistics.countNewQuery(up->dns1);
       Dns *response = nullptr;
       if (ipv6_first) {
         if (up->dns1.questions[0].Type == Dns::A and
@@ -1435,7 +1495,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
  * @param sfd
  * @return true means to exit the program
  */
-bool signalHandler(int sfd) {
+bool signalHandler(int sfd, DnsQueryStatistics &statistics) {
   ssize_t ssize;
   struct signalfd_siginfo signalfdSiginfo;
   for (;;) {
@@ -1452,9 +1512,13 @@ bool signalHandler(int sfd) {
         Dns::load_polluted_domains("pollution_domains.config");
         cout << "reload complete !" << endl;
         break;
+      case SIGUSR2:
+        statistics.printStatisticsInfos();
+        break;
       case SIGTERM:
       case SIGINT:
         if (bDaemon) syslog(LOG_INFO, "exit normally");
+        statistics.printStatisticsInfos();
         return true;
         break;
       default:
@@ -1500,9 +1564,9 @@ void reqMessageTimeoutHandler() {
 
 
 void parseArguments(int argc, char *argv[], char *&localnet_server_address, char *&local_address, uint16_t &local_port,
-                    char *&remote_address, char *&new_user) {
+                    char *&remote_address, char *&new_user, char *&statisticsFile) {
   int opt;
-  while ((opt = getopt(argc, argv, "6cgtu:dl:p:r:b:")) != -1) {
+  while ((opt = getopt(argc, argv, "6cgtu:dl:p:r:b:s:")) != -1) {
     switch (opt) {
       case '6':
         ipv6_first = true;
@@ -1541,6 +1605,9 @@ void parseArguments(int argc, char *argv[], char *&localnet_server_address, char
       case 'c':
         enable_cache = true;
         break;
+      case 's':
+        statisticsFile = optarg;
+        break;
       default:
         print_usage(argv);
         exit(EXIT_FAILURE);
@@ -1562,8 +1629,10 @@ int main(int argc, char *argv[]) {
   uint16_t local_port = 0;
   char *remote_address = nullptr;
   char *localnet_server_address = nullptr;
+  char *statisticsFile = nullptr;
 
-  parseArguments(argc, argv, localnet_server_address, local_address, local_port, remote_address, new_user);
+  parseArguments(argc, argv, localnet_server_address, local_address, local_port, remote_address, new_user,
+                 statisticsFile );
 
   Dns::load_polluted_domains("pollution_domains.config");
 
@@ -1717,6 +1786,7 @@ int main(int argc, char *argv[]) {
   sigaddset(&mask, SIGINT);
   sigaddset(&mask, SIGTERM);
   sigaddset(&mask, SIGUSR1);
+  sigaddset(&mask, SIGUSR2);
 
   if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
     ostringstream os;
@@ -1741,13 +1811,15 @@ int main(int argc, char *argv[]) {
   itimer.it_interval.tv_nsec = 0;
   itimer.it_interval.tv_sec = 0;
 
-  long queryTotalCounts = 0;
+
+
+  DnsQueryStatistics statistics(statisticsFile ? statisticsFile : "");
 
   for (;;) {
     int nfds = epoll_wait(epollfd, events, 100, -1);
     for (int _n = 0; _n < nfds; ++_n) {
       if (events[_n].data.fd == server_sock) {
-        readIncomeQuery(server_sock, buf, cliaddr, socklen, queryTotalCounts);
+        readIncomeQuery(server_sock, buf, cliaddr, socklen, statistics);
       } else if (events[_n].data.fd == upserver_sock) {
         readRemoteServerResponse(server_sock, buf);
       } else if (events[_n].data.fd == localnet_server_sock) {
@@ -1755,7 +1827,7 @@ int main(int argc, char *argv[]) {
       } else if (enable_tcp and events[_n].data.fd == server_sock_tcp) {
         acceptTcpIncome(server_sock_tcp, epollfd, cliaddr, socklen, ev);
       } else if (enable_tcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
-        readIncomeTcpQuery(epollfd, buf, events[_n], queryTotalCounts);
+        readIncomeTcpQuery(epollfd, buf, events[_n], statistics);
       } else if (enable_tcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
         HandleServerSideTcp(epollfd, buf, events[_n]);
       } else if (enable_cache and events[_n].data.fd == cache_tfd) {
@@ -1766,8 +1838,10 @@ int main(int argc, char *argv[]) {
         reqMessageTimeoutHandler();
       } else if (events[_n].data.fd == sfd) {
         // need to check which signal was sent
-        bool exitFlags = signalHandler(sfd);
-        if (exitFlags) goto end;
+        bool exitFlag = signalHandler(sfd, statistics);
+        if (exitFlag){
+          goto end;
+        }
 
       }
     }
