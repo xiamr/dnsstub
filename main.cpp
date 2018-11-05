@@ -1,3 +1,6 @@
+#include "config.h"
+
+#include <utility>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <iostream>
@@ -27,6 +30,75 @@
 #include <regex>
 #include <functional>
 #include <boost/algorithm/string.hpp>
+#include <fmt/printf.h>
+
+// Example of __DATE__ string: "Jul 27 2012"
+// Example of __TIME__ string: "21:06:19"
+
+#define COMPUTE_BUILD_YEAR \
+    ( \
+        (__DATE__[ 7] - '0') * 1000 + \
+        (__DATE__[ 8] - '0') *  100 + \
+        (__DATE__[ 9] - '0') *   10 + \
+        (__DATE__[10] - '0') \
+    )
+
+
+#define COMPUTE_BUILD_DAY \
+    ( \
+        ((__DATE__[4] >= '0') ? (__DATE__[4] - '0') * 10 : 0) + \
+        (__DATE__[5] - '0') \
+    )
+
+
+#define BUILD_MONTH_IS_JAN (__DATE__[0] == 'J' && __DATE__[1] == 'a' && __DATE__[2] == 'n')
+#define BUILD_MONTH_IS_FEB (__DATE__[0] == 'F')
+#define BUILD_MONTH_IS_MAR (__DATE__[0] == 'M' && __DATE__[1] == 'a' && __DATE__[2] == 'r')
+#define BUILD_MONTH_IS_APR (__DATE__[0] == 'A' && __DATE__[1] == 'p')
+#define BUILD_MONTH_IS_MAY (__DATE__[0] == 'M' && __DATE__[1] == 'a' && __DATE__[2] == 'y')
+#define BUILD_MONTH_IS_JUN (__DATE__[0] == 'J' && __DATE__[1] == 'u' && __DATE__[2] == 'n')
+#define BUILD_MONTH_IS_JUL (__DATE__[0] == 'J' && __DATE__[1] == 'u' && __DATE__[2] == 'l')
+#define BUILD_MONTH_IS_AUG (__DATE__[0] == 'A' && __DATE__[1] == 'u')
+#define BUILD_MONTH_IS_SEP (__DATE__[0] == 'S')
+#define BUILD_MONTH_IS_OCT (__DATE__[0] == 'O')
+#define BUILD_MONTH_IS_NOV (__DATE__[0] == 'N')
+#define BUILD_MONTH_IS_DEC (__DATE__[0] == 'D')
+
+
+#define COMPUTE_BUILD_MONTH \
+    ( \
+        (BUILD_MONTH_IS_JAN) ?  1 : \
+        (BUILD_MONTH_IS_FEB) ?  2 : \
+        (BUILD_MONTH_IS_MAR) ?  3 : \
+        (BUILD_MONTH_IS_APR) ?  4 : \
+        (BUILD_MONTH_IS_MAY) ?  5 : \
+        (BUILD_MONTH_IS_JUN) ?  6 : \
+        (BUILD_MONTH_IS_JUL) ?  7 : \
+        (BUILD_MONTH_IS_AUG) ?  8 : \
+        (BUILD_MONTH_IS_SEP) ?  9 : \
+        (BUILD_MONTH_IS_OCT) ? 10 : \
+        (BUILD_MONTH_IS_NOV) ? 11 : \
+        (BUILD_MONTH_IS_DEC) ? 12 : \
+        /* error default */  99 \
+    )
+
+#define COMPUTE_BUILD_HOUR ((__TIME__[0] - '0') * 10 + __TIME__[1] - '0')
+#define COMPUTE_BUILD_MIN  ((__TIME__[3] - '0') * 10 + __TIME__[4] - '0')
+#define COMPUTE_BUILD_SEC  ((__TIME__[6] - '0') * 10 + __TIME__[7] - '0')
+
+
+#define BUILD_DATE_IS_BAD (__DATE__[0] == '?')
+
+#define BUILD_YEAR  ((BUILD_DATE_IS_BAD) ? 99 : COMPUTE_BUILD_YEAR)
+#define BUILD_MONTH ((BUILD_DATE_IS_BAD) ? 99 : COMPUTE_BUILD_MONTH)
+#define BUILD_DAY   ((BUILD_DATE_IS_BAD) ? 99 : COMPUTE_BUILD_DAY)
+
+#define BUILD_TIME_IS_BAD (__TIME__[0] == '?')
+
+#define BUILD_HOUR  ((BUILD_TIME_IS_BAD) ? 99 :  COMPUTE_BUILD_HOUR)
+#define BUILD_MIN   ((BUILD_TIME_IS_BAD) ? 99 :  COMPUTE_BUILD_MIN)
+#define BUILD_SEC   ((BUILD_TIME_IS_BAD) ? 99 :  COMPUTE_BUILD_SEC)
+
 
 using namespace std;
 
@@ -45,10 +117,8 @@ bool enable_tcp = false;
 bool enable_cache = false;
 
 
-string get_err_string(int num) {
-  ostringstream os;
-  os << "__LINE__ = " << num;
-  return os.str();
+inline string get_err_string(int num) {
+  return fmt::sprintf("__LINE__ %d",num);
 }
 
 class out_of_bound : public runtime_error {
@@ -566,7 +636,7 @@ public:
   };
 
   enum ItemType {
-    A, AAAA, DOMAIN
+    A, AAAA, _DOMAIN
   };
 
   class Item {
@@ -914,19 +984,18 @@ long last_timer = 0;
 
 class DnsQueryStatistics {
   struct KeyHasher {
-    std::size_t operator()(const Dns::Question& t) const {
+    std::size_t operator()(const Dns::Question &t) const {
       return ((std::hash<std::string>()(t.name)
-          ^(hash<uint16_t>()(t.Class) << 1)) >> 1)
-          ^(hash<uint16_t>()(t.Type) << 1);
+               ^ (hash<uint16_t>()(t.Class) << 1)) >> 1)
+             ^ (hash<uint16_t>()(t.Type) << 1);
     }
   };
 
   std::unordered_map<Dns::Question, long, KeyHasher> _statistics;
   std::string statisticsFileName;
 public:
-  explicit DnsQueryStatistics(const std::string &statisticsFileName) :
-  statisticsFileName(statisticsFileName),
-  _statistics(){
+  explicit DnsQueryStatistics(std::string statisticsFileName) :
+      statisticsFileName(std::move(statisticsFileName)) {
   }
 
   void countNewQuery(const Dns &dns) {
@@ -961,7 +1030,7 @@ public:
           << "\t\t" << q.name << endl;
     }
     *os << "------------------------------------------------" << endl;
-    if (typeid(*os) == typeid(std::ofstream)){
+    if (typeid(*os) == typeid(std::ofstream)) {
       delete os;
     }
   }
@@ -973,12 +1042,10 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
     return false;
   }
   auto &q = upstream->dns1.questions[0];
-  ostringstream os;
-  os << q.name << "  " << Dns::QClass2Name[q.Class] << "    "
-     << Dns::QType2Name[q.Type] << endl;
+  std::string ostr = fmt::sprintf("%s  %s    %s\n", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type]);
 
-  cout << os.str();
-  if (bDaemon) syslog(LOG_INFO, "%s", os.str().c_str());
+  cout << ostr;
+  if (bDaemon) syslog(LOG_INFO, "%s", ostr.c_str());
 
   if (q.Type == Dns::A and ipv6_first) {
     q.Type = Dns::AAAA;
@@ -1267,9 +1334,8 @@ void readRemoteServerResponse(int server_sock, char *buf) {
   }
 }
 
-void
-readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
-    DnsQueryStatistics &statistics) {
+void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
+                     DnsQueryStatistics &statistics) {
   ssize_t n;
   while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
     DEBUG("new udp request from client")
@@ -1621,8 +1687,20 @@ void parseArguments(int argc, char *argv[], char *&localnet_server_address, char
 
 }
 
+void prinVersionInfos(){
+  std::cout << "----------------------------------------------------------------------" << std::endl;
+  std::cout << "CMake Configure Time : " << CMAKE_CONFIGURE_TIME << std::endl;
+  std::cout << "  Binaray Build Time : " << fmt::sprintf("%04d-%02d-%02d %02d:%02d:%2d\n",
+      BUILD_YEAR,BUILD_MONTH,BUILD_DAY,BUILD_HOUR,BUILD_MIN,BUILD_SEC);
+  std::cout << "             Version : " << DNSSTUB_VERSION << std::endl;
+  std::cout << "              Author : " << DNSSTUB_AUTHOR << std::endl;
+  std::cout << "----------------------------------------------------------------------" << std::endl << std::endl;
+}
+
 
 int main(int argc, char *argv[]) {
+
+  prinVersionInfos();
 
   char *new_user = nullptr;
   char *local_address = nullptr;
@@ -1632,7 +1710,7 @@ int main(int argc, char *argv[]) {
   char *statisticsFile = nullptr;
 
   parseArguments(argc, argv, localnet_server_address, local_address, local_port, remote_address, new_user,
-                 statisticsFile );
+                 statisticsFile);
 
   Dns::load_polluted_domains("pollution_domains.config");
 
@@ -1658,6 +1736,13 @@ int main(int argc, char *argv[]) {
     if (bDaemon) syslog(LOG_ERR, "Local addresss(%s) is invaild", local_address);
     exit(EXIT_FAILURE);
   }
+
+  if(server_addr.ss_family == AF_INET){
+    std::cout << fmt::sprintf("listen at %s:%d\n", local_address, local_port);
+  }else{
+    std::cout << fmt::sprintf("listen at [%s]:%d\n", local_address, local_port);
+  }
+
   int server_sock = socket(server_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
   if (server_sock < 0) {
     perror("Can not open socket ");
@@ -1785,7 +1870,11 @@ int main(int argc, char *argv[]) {
   sigemptyset(&mask);
   sigaddset(&mask, SIGINT);
   sigaddset(&mask, SIGTERM);
+
+  // signal of reload configuration file
   sigaddset(&mask, SIGUSR1);
+
+  // signal of print statistics infomation
   sigaddset(&mask, SIGUSR2);
 
   if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
@@ -1810,7 +1899,6 @@ int main(int argc, char *argv[]) {
 
   itimer.it_interval.tv_nsec = 0;
   itimer.it_interval.tv_sec = 0;
-
 
 
   DnsQueryStatistics statistics(statisticsFile ? statisticsFile : "");
@@ -1839,7 +1927,7 @@ int main(int argc, char *argv[]) {
       } else if (events[_n].data.fd == sfd) {
         // need to check which signal was sent
         bool exitFlag = signalHandler(sfd, statistics);
-        if (exitFlag){
+        if (exitFlag) {
           goto end;
         }
 

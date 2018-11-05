@@ -1,15 +1,22 @@
 cmake_minimum_required(VERSION 3.10)
 project(dnsstub)
 
+set(DNSSTUB_VERSION 0.1)
+set(DNSSTUB_AUTHOR "MiaoRen Xia")
+
 set(CMAKE_CXX_STANDARD 14)
 find_library(HAVE_LIBRT rt)
 if (NOT DEFINED HAVE_LIBRT)
     message(SEND_ERROR "rt library not found")
 endif ()
-link_libraries(rt)
+link_libraries(rt fmt)
 find_package(Boost REQUIRED)
 include_directories(${Boost_INCLUDE_DIR} )
 link_libraries(${Boost_LIBRARIES} )
 message(STATUS ${Boost_LIBRARIES})
 
+include_directories(${PROJECT_BINARY_DIR})
+string(TIMESTAMP CMAKE_CONFIGURE_TIME "%Y-%m-%d %H:%M:%S")
+configure_file(config.h.cmake config.h)
+set(CMAKE_VERBOSE_MAKEFILE ON)
 add_executable(dnsstub main.cpp)
