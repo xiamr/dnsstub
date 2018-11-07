@@ -100,12 +100,11 @@
 #define BUILD_SEC   ((BUILD_TIME_IS_BAD) ? 99 :  COMPUTE_BUILD_SEC)
 
 
-using namespace std;
 
 #ifdef NDEBUG
 #define DEBUG(str)
 #else
-#define DEBUG(str) cout << str << endl;
+#define DEBUG(str) std::cout << str << std::endl;
 #endif
 
 const int max_udp_len = 65536;
@@ -117,26 +116,26 @@ bool enable_tcp = false;
 bool enable_cache = false;
 
 
-inline string get_err_string(int num) {
+inline std::string get_err_string(int num) {
   return fmt::sprintf("__LINE__ %d",num);
 }
 
-class out_of_bound : public runtime_error {
+class out_of_bound : public std::runtime_error {
 public:
   explicit out_of_bound(int line);
 };
 
-class BadDnsError : public runtime_error {
+class BadDnsError : public std::runtime_error {
 public:
-  explicit BadDnsError(const string &__arg) : runtime_error(__arg) {}
+  explicit BadDnsError(const std::string &__arg) : std::runtime_error(__arg) {}
 
-  explicit BadDnsError(const char *__arg) : runtime_error(__arg) {}
+  explicit BadDnsError(const char *__arg) : std::runtime_error(__arg) {}
 
-  BadDnsError() : runtime_error("BadDnsError") {}
+  BadDnsError() : std::runtime_error("BadDnsError") {}
 };
 
 
-out_of_bound::out_of_bound(int line) : runtime_error(get_err_string(line)) {}
+out_of_bound::out_of_bound(int line) : std::runtime_error(get_err_string(line)) {}
 
 class Cache;
 
@@ -166,17 +165,17 @@ public:
     AAAA = 28, SRV = 33, NAPTR = 35, OPT = 41, IXPT = 251, AXFR = 252, ANY = 255
   };
 
-  static unordered_map<enum QType, string> QType2Name;
+  static std::unordered_map<enum QType, std::string> QType2Name;
 
   enum QClass : uint16_t {
     IN = 1, NOCLASS = 254, ALL = 255
   };
 
-  static unordered_map<enum QClass, string> QClass2Name;
+  static std::unordered_map<enum QClass, std::string> QClass2Name;
 
   class Question {
   public:
-    string name;
+    std::string name;
     enum QType Type;
     enum QClass Class;
 
@@ -187,11 +186,11 @@ public:
 
   class Answer {
   public:
-    string name;
+    std::string name;
     enum QType Type;
     enum QClass Class;
     unsigned int TTL;
-    string rdata;
+    std::string rdata;
 
   };
 
@@ -236,15 +235,15 @@ public:
 
   ssize_t to_wire(char *buf, int len);
 
-  vector<Question> questions;
-  vector<Answer> answers;
-  vector<Additional> additionals;
+  std::vector<Question> questions;
+  std::vector<Answer> answers;
+  std::vector<Additional> additionals;
 
 
-  string getName(char *&ptr, char *buf, const char *upbound);
+  std::string getName(char *&ptr, char *buf, const char *upbound);
 
-  char *toName(string &name, char *ptr, const char *buf, const char *upbound,
-               unordered_map<string, uint16_t> &str_map);
+  char *toName(std::string &name, char *ptr, const char *buf, const char *upbound,
+               std::unordered_map<std::string, uint16_t> &str_map);
 
   unsigned short id{};
   unsigned short signs{};
@@ -287,7 +286,7 @@ private:
 
 std::unordered_set<std::string> Dns::polluted_domains;
 
-unordered_map<enum Dns::QType, string> Dns::QType2Name = {
+std::unordered_map<enum Dns::QType, std::string> Dns::QType2Name = {
     {A,     "A"},
     {NS,    "NS"},
     {CNAME, "CNAME"},
@@ -304,7 +303,7 @@ unordered_map<enum Dns::QType, string> Dns::QType2Name = {
     {ANY,   "ANY"}
 };
 
-unordered_map<enum Dns::QClass, string> Dns::QClass2Name = {
+std::unordered_map<enum Dns::QClass, std::string> Dns::QClass2Name = {
     {IN,      "IN"},
     {NOCLASS, "NOCLASS"},
     {ALL,     "ALL"}
@@ -381,7 +380,7 @@ void Dns::from_wire(char *buf, int len) {
   }
 
   if (0 == (signs & QR) and !questions.empty()) {
-    string domain = questions.front().name;
+    std::string domain = questions.front().name;
     for (const auto &pattern : Dns::polluted_domains) {
       if (fnmatch(pattern.c_str(), domain.c_str(), FNM_CASEFOLD) == 0) {
         // Match
@@ -392,9 +391,9 @@ void Dns::from_wire(char *buf, int len) {
   }
 }
 
-char *Dns::toName(string &origin_name, char *ptr, const char *buf, const char *upbound,
-                  unordered_map<string, uint16_t> &str_map) {
-  string name = origin_name;
+char *Dns::toName(std::string &origin_name, char *ptr, const char *buf, const char *upbound,
+                  std::unordered_map<std::string, uint16_t> &str_map) {
+  std::string name = origin_name;
   name.erase(name.end() - 1);
   if (name.length() == 0) {
     *ptr = '\0';
@@ -411,7 +410,7 @@ char *Dns::toName(string &origin_name, char *ptr, const char *buf, const char *u
     *ptr |= 0xc0;
     ptr += 2;
     return ptr;
-  } catch (out_of_range &) {
+  } catch (std::out_of_range &) {
     str_map[name.substr(pos)] = ptr - buf;
   }
   ptr++;
@@ -430,7 +429,7 @@ char *Dns::toName(string &origin_name, char *ptr, const char *buf, const char *u
         *ptr |= 0xc0;
         ptr += 2;
         return ptr;
-      } catch (out_of_range &) {
+      } catch (std::out_of_range &) {
         str_map[name.substr(pos)] = ptr - buf;
       }
       now_ptr = ptr;
@@ -453,8 +452,8 @@ char *Dns::toName(string &origin_name, char *ptr, const char *buf, const char *u
 
 }
 
-string Dns::getName(char *&ptr, char *buf, const char *upbound) {
-  string name;
+std::string Dns::getName(char *&ptr, char *buf, const char *upbound) {
+  std::string name;
   bool first = true;
   while (true) {
     if (ptr > upbound) throw out_of_bound(__LINE__);
@@ -490,38 +489,38 @@ string Dns::getName(char *&ptr, char *buf, const char *upbound) {
 }
 
 void Dns::print() {
-  cout << "id:" << id << endl;
-  cout << "signs:" << signs << endl;
-  cout << "qdcout:" << questions.size() << endl;
-  cout << "ancout:" << answers.size() << endl;
-  cout << "nscout:" << 0 << endl;
-  cout << "arcout:" << 0 << endl;
-  if (signs & QR) cout << "QR ";
-  if (signs & AA) cout << "AA ";
-  if (signs & TC) cout << "TC ";
-  if (signs & RD) cout << "RD ";
-  if (signs & RA) cout << "RA ";
-  if (signs & AD) cout << "AD ";
-  if (signs & CD) cout << "CD ";
+  std::cout << "id:" << id << std::endl;
+  std::cout << "signs:" << signs << std::endl;
+  std::cout << "qdcout:" << questions.size() << std::endl;
+  std::cout << "ancout:" << answers.size() << std::endl;
+  std::cout << "nscout:" << 0 << std::endl;
+  std::cout << "arcout:" << 0 << std::endl;
+  if (signs & QR) std::cout << "QR ";
+  if (signs & AA) std::cout << "AA ";
+  if (signs & TC) std::cout << "TC ";
+  if (signs & RD) std::cout << "RD ";
+  if (signs & RA) std::cout << "RA ";
+  if (signs & AD) std::cout << "AD ";
+  if (signs & CD) std::cout << "CD ";
 
-  cout << "OpCode: " << get_opcode() << endl;
-  cout << "RCode: " << get_rcode() << endl;
+  std::cout << "OpCode: " << get_opcode() << std::endl;
+  std::cout << "RCode: " << get_rcode() << std::endl;
 
-  cout << "Questions" << endl;
+  std::cout << "Questions" << std::endl;
   for (auto &q : questions) {
-    cout << q.name << "   " << QClass2Name[q.Class] << "  " << QType2Name[q.Type] << endl;
+    std::cout << q.name << "   " << QClass2Name[q.Class] << "  " << QType2Name[q.Type] << std::endl;
   }
-  cout << "Answers" << endl;
+  std::cout << "Answers" << std::endl;
   for (auto &ans : answers) {
-    cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name[ans.Type] << "  " << ans.rdata
-         << endl;
+    std::cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name[ans.Type] << "  " << ans.rdata
+         << std::endl;
   }
 
 }
 
 
 ssize_t Dns::to_wire(char *buf, int n) {
-  unordered_map<string, uint16_t> str_map;
+  std::unordered_map<std::string, uint16_t> str_map;
   char *ptr = buf;
   const char *upbound = buf + n;
   htons_ptr(ptr, id, upbound);
@@ -611,14 +610,14 @@ uint16_t get_id() {
 }
 
 void print_usage(char *argv[]) {
-  cerr << "Usage: " << argv[0]
+  std::cerr << "Usage: " << argv[0]
        << " [-d] [-u user] [-6] [-g] [-t] [-c] -s statistics_file -l local_address -p local_port -b localnet_server_addresss -r remote_address"
-       << endl;
-  cerr << "-6 : ipv6 first" << endl;
-  cerr << "-d : daemon mode" << endl;
-  cerr << "-g : great firewall mode" << endl;
-  cerr << "-t : enable tcp support" << endl;
-  cerr << "-c : enable internal cache" << endl;
+       << std::endl;
+  std::cerr << "-6 : ipv6 first" << std::endl;
+  std::cerr << "-d : daemon mode" << std::endl;
+  std::cerr << "-g : great firewall mode" << std::endl;
+  std::cerr << "-t : enable tcp support" << std::endl;
+  std::cerr << "-c : enable internal cache" << std::endl;
 }
 
 
@@ -641,9 +640,9 @@ public:
 
   class Item {
   public:
-    string name;
-    unordered_set<Relation *> parent_relations;
-    unordered_set<Relation *> child_relations;
+    std::string name;
+    std::unordered_set<Relation *> parent_relations;
+    std::unordered_set<Relation *> child_relations;
   };
 
   void construct(Dns &dns) {
@@ -700,7 +699,7 @@ public:
     set_timer(mtime);
   }
 
-  Item *getItem(const string &name) {
+  Item *getItem(const std::string &name) {
     auto it = item_hash.find(name);
     if (it == item_hash.end()) return nullptr;
     else return it->second;
@@ -743,11 +742,11 @@ public:
     this->timer_fd = timer_fd;
   }
 
-  unordered_set<string> noipv6_domain;
+  std::unordered_set<std::string> noipv6_domain;
 private:
-  unordered_map<string, Item *> item_hash;
+  std::unordered_map<std::string, Item *> item_hash;
 
-  vector<Relation *> sorted_heap;
+  std::vector<Relation *> sorted_heap;
   int timer_fd;
   double last_timer = 0.0;
 
@@ -849,7 +848,7 @@ private:
 
 bool c_timeout = false;
 
-bool deep_find(Cache::Item *p, vector<Dns::Answer> &res_anss,
+bool deep_find(Cache::Item *p, std::vector<Dns::Answer> &res_anss,
                Cache &cache, Dns::QType type, struct timespec &time) {
   bool found = false;
   for (auto &r : p->child_relations) {
@@ -887,7 +886,7 @@ bool deep_find(Cache::Item *p, vector<Dns::Answer> &res_anss,
 }
 
 Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
-  vector<Answer> res_anss;
+  std::vector<Answer> res_anss;
   auto &q = dns.questions[0];
   Cache::Item *p = cache.getItem(q.name);
   if (p == nullptr) return nullptr;
@@ -917,7 +916,7 @@ void Dns::load_polluted_domains(const std::string &config_filename) {
   std::ifstream fs;
   fs.open(config_filename);
   if (fs) {
-    string line;
+    std::string line;
     while (!fs.eof()) {
       std::getline(fs, line);
       boost::trim(line);
@@ -930,12 +929,12 @@ void Dns::load_polluted_domains(const std::string &config_filename) {
     fs.close();
     return;
   }
-  cerr << "config file (" << config_filename << ") was not opened !" << endl;
+  std::cerr << "config file (" << config_filename << ") was not opened !" << std::endl;
 }
 
 bool Dns::isDomainValid(const std::string &domain) {
   static auto validDomainPattern = std::regex(
-      "^([a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\\.$|\\.)");
+      R"(^([a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\.$|\.))");
   return std::regex_match(domain, validDomainPattern);
 }
 
@@ -964,15 +963,15 @@ public:
   }
 };
 
-unordered_map<uint16_t, Upstream *> id_map;
+std::unordered_map<uint16_t, Upstream *> id_map;
 Upstream *oldest_up = nullptr, *newest_up = nullptr;
 
 struct itimerspec itimer;
 
 int tfd;
 
-unordered_map<int, Upstream *> client_tcp_con;
-unordered_map<int, Upstream *> server_tcp_con;
+std::unordered_map<int, Upstream *> client_tcp_con;
+std::unordered_map<int, Upstream *> server_tcp_con;
 struct sockaddr_storage upserver_addr;
 struct sockaddr_storage localnet_server_addr;
 
@@ -986,8 +985,8 @@ class DnsQueryStatistics {
   struct KeyHasher {
     std::size_t operator()(const Dns::Question &t) const {
       return ((std::hash<std::string>()(t.name)
-               ^ (hash<uint16_t>()(t.Class) << 1)) >> 1)
-             ^ (hash<uint16_t>()(t.Type) << 1);
+               ^ (std::hash<uint16_t>()(t.Class) << 1)) >> 1)
+             ^ (std::hash<uint16_t>()(t.Type) << 1);
     }
   };
 
@@ -1021,15 +1020,15 @@ public:
         return;
       }
     }
-    *os << "------------ statistics ------------------------" << endl;
+    *os << "------------ statistics ------------------------" << std::endl;
 
     *os << "Count\tClass\tType\t\tName" << std::endl;
     for (auto &item : _statistics) {
       auto &q = item.first;
       *os << item.second << "\t\t" << Dns::QClass2Name[q.Class] << "\t\t" << Dns::QType2Name[q.Type]
-          << "\t\t" << q.name << endl;
+          << "\t\t" << q.name << std::endl;
     }
-    *os << "------------------------------------------------" << endl;
+    *os << "------------------------------------------------" << std::endl;
     if (typeid(*os) == typeid(std::ofstream)) {
       delete os;
     }
@@ -1044,7 +1043,7 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   auto &q = upstream->dns1.questions[0];
   std::string ostr = fmt::sprintf("%s  %s    %s\n", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type]);
 
-  cout << ostr;
+  std::cout << ostr;
   if (bDaemon) syslog(LOG_INFO, "%s", ostr.c_str());
 
   if (q.Type == Dns::A and ipv6_first) {
@@ -1114,7 +1113,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
     } catch (out_of_bound &err) {
       delete upstream;
       return nullptr;
-    } catch (BadDnsError) {
+    } catch (BadDnsError&) {
       delete upstream;
       return nullptr;
     }
@@ -1137,7 +1136,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         try {
           n = dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          cerr << "Memory Access Error : " << err.what() << endl;
+          std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
           delete upstream;
           return nullptr;
@@ -1151,7 +1150,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         try {
           n = upstream->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          cerr << "Memory Access Error : " << err.what() << endl;
+          std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
           delete upstream;
           return nullptr;
@@ -1182,13 +1181,13 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           if (upstream->dns1.use_localnet_dns_server) {
             if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                        sizeof(localnet_server_addr)) < 0) {
-              cerr << "send error : " << __LINE__ << strerror(errno) << endl;
+              std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
               if (bDaemon)
                 syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
             }
           } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
                      0) {
-            cerr << "send error : " << __LINE__ << strerror(errno) << endl;
+            std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
             if (bDaemon) syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
           }
           id_map[upstream->dns1.id] = upstream;
@@ -1223,7 +1222,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         try {
           n = dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          cerr << "Memory Access Error : " << err.what() << endl;
+          std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
           delete upstream;
           return nullptr;
@@ -1344,10 +1343,10 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
     try {
       up->dns1.from_wire(buf, n);
     } catch (out_of_bound &err) {
-      cerr << "Memory Access Error : " << err.what() << endl;
+      std::cerr << "Memory Access Error : " << err.what() << std::endl;
       if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
     } catch (BadDnsError) {
-      cerr << "Bad Dns " << endl;
+      std::cerr << "Bad Dns " << std::endl;
     }
     if (up->dns1.questions.empty()) {
       delete up;
@@ -1372,7 +1371,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       try {
         n = response->to_wire(buf, max_udp_len);
       } catch (out_of_bound &err) {
-        cerr << "Memory Access Error : " << err.what() << endl;
+        std::cerr << "Memory Access Error : " << err.what() << std::endl;
         if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
       }
       DEBUG("send response to client from cache")
@@ -1387,7 +1386,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         try {
           n = up->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          cerr << "Memory Access Error : " << err.what() << endl;
+          std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
           delete up;
           continue;
@@ -1400,12 +1399,12 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                    sizeof(localnet_server_addr)) <
             0) {
-          cerr << "send error : " << __LINE__ << endl;
+          std::cerr << "send error : " << __LINE__ << std::endl;
           if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
         }
       } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
                         sizeof(upserver_addr)) < 0) {
-        cerr << "send error  : " << __LINE__ << endl;
+        std::cerr << "send error  : " << __LINE__ << std::endl;
         if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
       }
     }
@@ -1423,10 +1422,10 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
       try {
         up->dns1.from_wire(up->buf, up->buf_len);
       } catch (out_of_bound &err) {
-        cerr << "Memory Access Error : " << err.what() << endl;
+        std::cerr << "Memory Access Error : " << err.what() << std::endl;
         if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
       } catch (BadDnsError) {
-        cerr << "Bad Dns " << endl;
+        std::cerr << "Bad Dns " << std::endl;
       }
       if (up->dns1.questions.empty()) {
         delete up;
@@ -1454,7 +1453,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         try {
           n = response->to_wire(buf + 2, max_udp_len - 2);
         } catch (out_of_bound &err) {
-          cerr << "Memory Access Error : " << err.what() << endl;
+          std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
         }
         *(uint16_t *) buf = htons(n);
@@ -1569,14 +1568,14 @@ bool signalHandler(int sfd, DnsQueryStatistics &statistics) {
     if (ssize != sizeof(struct signalfd_siginfo)) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) break;
       if (errno == EINTR) continue;
-      cerr << "signalfd read error " << endl;
+      std::cerr << "signalfd read error " << std::endl;
       return false;
     }
     switch (signalfdSiginfo.ssi_signo) {
       case SIGUSR1:
-        cout << "reloading config file <pollution_domains.config> ..." << endl;
+        std::cout << "reloading config file <pollution_domains.config> ..." << std::endl;
         Dns::load_polluted_domains("pollution_domains.config");
-        cout << "reload complete !" << endl;
+        std::cout << "reload complete !" << std::endl;
         break;
       case SIGUSR2:
         statistics.printStatisticsInfos();
@@ -1588,7 +1587,7 @@ bool signalHandler(int sfd, DnsQueryStatistics &statistics) {
         return true;
         break;
       default:
-        cerr << "unexcepted signal (" << signalfdSiginfo.ssi_signo << ") " << endl;
+        std::cerr << "unexcepted signal (" << signalfdSiginfo.ssi_signo << ") " << std::endl;
     }
   }
   return false;
@@ -1649,7 +1648,7 @@ void parseArguments(int argc, char *argv[], char *&localnet_server_address, char
       case 'p': {
         long port = strtol(optarg, nullptr, 10);
         if (port < 1 or port > 65535) {
-          cerr << "port range error : " << port << endl;
+          std::cerr << "port range error : " << port << std::endl;
           print_usage(argv);
           exit(EXIT_FAILURE);
         }
@@ -1716,8 +1715,8 @@ int main(int argc, char *argv[]) {
 
   std::cout << "Start Server ..." << std::endl;
   if (bDaemon) {
-    cout << "Enter daemon mode .." << endl;
-    cout << "Open syslog facility .. " << endl;
+    std::cout << "Enter daemon mode .." << std::endl;
+    std::cout << "Open syslog facility .. " << std::endl;
     daemon(0, 0);
     openlog(argv[0], LOG_PID, LOG_USER);
   }
@@ -1732,7 +1731,7 @@ int main(int argc, char *argv[]) {
     server_addr.ss_family = AF_INET;
     ((sockaddr_in *) &server_addr)->sin_port = htons(local_port);
   } else {
-    cerr << "Local addresss is invaild" << endl;
+    std::cerr << "Local addresss is invaild" << std::endl;
     if (bDaemon) syslog(LOG_ERR, "Local addresss(%s) is invaild", local_address);
     exit(EXIT_FAILURE);
   }
@@ -1783,7 +1782,7 @@ int main(int argc, char *argv[]) {
     upserver_addr.ss_family = AF_INET;
     ((sockaddr_in *) &upserver_addr)->sin_port = htons(53);
   } else {
-    cerr << "Remote addresss is invaild" << endl;
+    std::cerr << "Remote addresss is invaild" << std::endl;
     if (bDaemon) syslog(LOG_ERR, "Remote addresss(%s) is invaild", remote_address);
     exit(EXIT_FAILURE);
   }
@@ -1800,7 +1799,7 @@ int main(int argc, char *argv[]) {
     localnet_server_addr.ss_family = AF_INET;
     ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(53);
   } else {
-    cerr << "local net dns server address resolve error" << endl;
+    std::cerr << "local net dns server address resolve error" << std::endl;
     exit(EXIT_FAILURE);
   }
 
@@ -1878,18 +1877,16 @@ int main(int argc, char *argv[]) {
   sigaddset(&mask, SIGUSR2);
 
   if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
-    ostringstream os;
-    os << "sigprocmask" << strerror(errno) << endl;
-    cerr << os.str();
-    if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
+    std::string ostr = fmt::sprintf("sigprocmask %s\n", strerror(errno));
+    std::cerr << ostr;
+    if (bDaemon) syslog(LOG_ERR, "%s", ostr.c_str());
     //exit(EXIT_FAILURE);
   }
   int sfd = signalfd(-1, &mask, SFD_NONBLOCK);
   if (sfd == -1) {
-    ostringstream os;
-    os << "signalfd" << strerror(errno) << endl;
-    cerr << os.str();
-    if (bDaemon) syslog(LOG_ERR, "%s", os.str().c_str());
+    std::string ostr = fmt::sprintf("signalfd %s\n", strerror(errno));
+    std::cerr << ostr;
+    if (bDaemon) syslog(LOG_ERR, "%s", ostr.c_str());
     //exit(EXIT_FAILURE);
   }
   ev.events = EPOLLIN | EPOLLET;
