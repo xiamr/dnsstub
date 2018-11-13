@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(dnsstub)
 
-set(DNSSTUB_VERSION 0.1)
+file(STRINGS "VERSION" DNSSTUB_VERSION)
 set(DNSSTUB_AUTHOR "MiaoRen Xia")
 
 set(CMAKE_CXX_STANDARD 14)
