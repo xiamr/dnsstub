@@ -1467,17 +1467,30 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
 
       } else {
         if (!add_upstream(up->buf, up->buf_len, up)) return;
-        int upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+        int upfd;
+
+        if (up->dns1.use_localnet_dns_server){
+          upfd = socket(localnet_server_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+        }else {
+          upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+        }
         if (upfd < 0) {
           perror("Can not open socket ");
-          if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+          exit(2);
         }
         struct epoll_event ev;
         ev.events = EPOLLET | EPOLLOUT | EPOLLERR;
         ev.data.fd = upfd;
         epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
         DEBUG("new tcp connnect to server")
-        int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+        int ret;
+        if (up->dns1.use_localnet_dns_server) {
+          ret = connect(upfd, (sockaddr *) &localnet_server_addr, sizeof(localnet_server_addr));
+          DEBUG("Tcp connect to localnet dns server ...")
+        }else{
+          ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+          DEBUG("Tcp connect to remote dns server ...")
+        }
         if (ret < 0 and errno != EINPROGRESS) {
           syslog(LOG_ERR, "connect to up server error %d : %s", __LINE__, strerror(errno));
         }
