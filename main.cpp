@@ -282,6 +282,7 @@ private:
   }
 
 
+  void checkLocalnetType();
 };
 
 std::unordered_set<std::string> Dns::polluted_domains;
@@ -360,28 +361,33 @@ void Dns::from_wire(char *buf, int len) {
 
     answers.push_back(answer);
   }
-  if (nscout) return;
-  for (unsigned short i = 0; i < arcout; i++) {
-    Additional additional;
-    if (ptr > upbound) throw out_of_bound(__LINE__);
-    additional.name = static_cast<uint8_t>(*ptr);
-    ptr++;
-    additional.Type = ntohs_ptr(ptr, upbound);
-    additional.playload_size = ntohs_ptr(ptr, upbound);
-    if (ptr > upbound) throw out_of_bound(__LINE__);
-    additional.high_bit_in_extend_rcode = static_cast<uint8_t>(*ptr);
-    ptr++;
-    if (ptr > upbound) throw out_of_bound(__LINE__);
-    additional.edns0_verion = static_cast<uint8_t>(*ptr);
-    ptr++;
-    additional.Z = ntohs_ptr(ptr, upbound);
-    additional.data_length = ntohs_ptr(ptr, upbound);
-    additionals.push_back(additional);
+  if (!nscout) {
+    for (unsigned short i = 0; i < arcout; i++) {
+      Additional additional;
+      if (ptr > upbound) throw out_of_bound(__LINE__);
+      additional.name = static_cast<uint8_t>(*ptr);
+      ptr++;
+      additional.Type = ntohs_ptr(ptr, upbound);
+      additional.playload_size = ntohs_ptr(ptr, upbound);
+      if (ptr > upbound) throw out_of_bound(__LINE__);
+      additional.high_bit_in_extend_rcode = static_cast<uint8_t>(*ptr);
+      ptr++;
+      if (ptr > upbound) throw out_of_bound(__LINE__);
+      additional.edns0_verion = static_cast<uint8_t>(*ptr);
+      ptr++;
+      additional.Z = ntohs_ptr(ptr, upbound);
+      additional.data_length = ntohs_ptr(ptr, upbound);
+      additionals.push_back(additional);
+    }
   }
 
+  checkLocalnetType();
+}
+
+void Dns::checkLocalnetType() {
   if (0 == (signs & QR) and !questions.empty()) {
     std::string domain = questions.front().name;
-    for (const auto &pattern : Dns::polluted_domains) {
+    for (const auto &pattern : polluted_domains) {
       if (fnmatch(pattern.c_str(), domain.c_str(), FNM_CASEFOLD) == 0) {
         // Match
         use_localnet_dns_server = false;
@@ -705,6 +711,9 @@ public:
     else return it->second;
   }
 
+
+  virtual ~Cache();
+
   void timeout() {
     // timeout event from epoll
     // remove some relations
@@ -845,6 +854,15 @@ private:
 
 
 };
+
+Cache::~Cache() {
+  for (auto r : sorted_heap){
+    delete r;
+  }
+  for (auto &item : item_hash){
+    delete item.second;
+  }
+}
 
 bool c_timeout = false;
 
@@ -1951,6 +1969,7 @@ int main(int argc, char *argv[]) {
   close(epollfd);
   close(server_sock);
   close(upserver_sock);
+  close(localnet_server_sock);
   std::cout << "EXIT_SUCCESS" << std::endl;
   return EXIT_SUCCESS;
 }
