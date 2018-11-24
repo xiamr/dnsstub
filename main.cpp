@@ -35,6 +35,9 @@
 #include <array>        // std::array
 #include <random>       // std::default_random_engine
 #include <chrono>       // std::chrono::system_clock
+#include "json.hpp"
+
+using json = nlohmann::json;
 
 // Example of __DATE__ string: "Jul 27 2012"
 // Example of __TIME__ string: "21:06:19"
@@ -111,12 +114,29 @@
 #endif
 
 const int max_udp_len = 65536;
-
 bool bDaemon = false;
-bool ipv6_first = false;
-bool gfw_mode = false;
-bool enable_tcp = false;
-bool enable_cache = false;
+
+class Config {
+public:
+  std::string localAddress;
+  uint16_t localPort;
+  std::string suUsername;
+  std::string statisticsFile;
+  std::string polution;
+  bool enableCache;
+  bool enableTcp;
+  bool ipv6First;
+  bool gfwMode;
+  bool daemonMode;
+
+  std::string remote_server_address;
+  uint16_t remote_server_port;
+
+  std::string localnet_server_address;
+  uint16_t localnet_server_port;
+};
+
+Config *config = nullptr;
 
 
 inline std::string get_err_string(int num) {
@@ -619,14 +639,7 @@ uint16_t get_id() {
 }
 
 void print_usage(char *argv[]) {
-  std::cerr << "Usage: " << argv[0]
-            << " [-d] [-u user] [-6] [-g] [-t] [-c] -s statistics_file -l local_address -p local_port -b localnet_server_addresss -r remote_address"
-            << std::endl;
-  std::cerr << "-6 : ipv6 first" << std::endl;
-  std::cerr << "-d : daemon mode" << std::endl;
-  std::cerr << "-g : great firewall mode" << std::endl;
-  std::cerr << "-t : enable tcp support" << std::endl;
-  std::cerr << "-c : enable internal cache" << std::endl;
+  std::cerr << "Usage: " << argv[0] << "-c config_filename" << std::endl;
 }
 
 
@@ -1093,13 +1106,13 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   std::cout << ostr;
   if (bDaemon) syslog(LOG_INFO, "%s", ostr.c_str());
 
-  if (q.Type == Dns::A and ipv6_first) {
+  if (q.Type == Dns::A and config->ipv6First) {
     q.Type = Dns::AAAA;
     upstream->checked_ipv6 = false;
   } else {
     upstream->checked_ipv6 = true;
   }
-  upstream->dns1.GFW_mode = gfw_mode;
+  upstream->dns1.GFW_mode = config->gfwMode;
 
   upstream->cli_id = upstream->dns1.id;
   upstream->dns1.id = get_id();
@@ -1401,7 +1414,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
     }
     statistics.countNewQuery(up->dns1);
     Dns *response = nullptr;
-    if (ipv6_first) {
+    if (config->ipv6First) {
       if (up->dns1.questions[0].Type == Dns::A
           and !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
         up->dns1.questions[0].Type = Dns::AAAA;
@@ -1429,7 +1442,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       memcpy(&up->cliaddr, &cliaddr, socklen);
       up->socklen = socklen;
       if (!add_upstream(buf, n, up)) continue;
-      if (ipv6_first or gfw_mode) {
+      if (config->ipv6First or config->gfwMode) {
         try {
           n = up->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
@@ -1483,7 +1496,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
       }
       statistics.countNewQuery(up->dns1);
       Dns *response = nullptr;
-      if (ipv6_first) {
+      if (config->ipv6First) {
         if (up->dns1.questions[0].Type == Dns::A and
             !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
           up->dns1.questions[0].Type = Dns::AAAA;
@@ -1688,62 +1701,59 @@ void reqMessageTimeoutHandler() {
 }
 
 
-void parseArguments(int argc, char *argv[], char *&localnet_server_address, char *&local_address, uint16_t &local_port,
-                    char *&remote_address, char *&new_user, char *&statisticsFile) {
+
+Config* load_json_config(std::string filename){
+  std::ifstream ifs;
+  ifs.open(filename);
+  if (!ifs.fail()) {
+    json j;
+    ifs >> j;
+
+    auto config = new Config;
+    try {
+      config->localAddress = j["localAddress"];
+      config->localPort = j["localPort"];
+
+      config->suUsername = j.value("su","");
+      config->statisticsFile = j.value("statisticsFile","");
+      config->polution = j.value("polution","");
+
+      config->enableCache = j.value("enableCache", false);
+      config->enableTcp = j.value("enableTcp", false);
+      config->ipv6First = j.value("ipv6First", false);
+      config->gfwMode = j.value("gfwMode", false);
+      config->daemonMode = j.value("daemonMode", false);
+
+
+      config->remote_server_address = j.value("remote_server_address","8.8.8.8");
+      config->remote_server_port = j.value("remote_server_port",53);
+
+      config->localnet_server_address = j.value("localnet_server_address","");
+      config->localnet_server_port = j.value("localnet_server_port",53);
+      
+    } catch (json::exception &exception) {
+      std::cerr << exception.what() << std::endl;
+      return nullptr;
+    }
+    
+    return config;
+  }
+  return nullptr;
+}
+
+
+std::string parseArguments(int argc, char *argv[]) {
   int opt;
-  while ((opt = getopt(argc, argv, "6cgtu:dl:p:r:b:s:")) != -1) {
+  while ((opt = getopt(argc, argv, "c:")) != -1) {
     switch (opt) {
-      case '6':
-        ipv6_first = true;
-        break;
-      case 'g':
-        gfw_mode = true;
-        break;
-      case 'b':
-        localnet_server_address = optarg;
-        break;
-      case 'l':
-        local_address = optarg;
-        break;
-      case 'p': {
-        long port = strtol(optarg, nullptr, 10);
-        if (port < 1 or port > 65535) {
-          std::cerr << "port range error : " << port << std::endl;
-          print_usage(argv);
-          exit(EXIT_FAILURE);
-        }
-        local_port = port;
-      }
-        break;
-      case 'r':
-        remote_address = optarg;
-        break;
-      case 'd':
-        bDaemon = true;
-        break;
-      case 'u':
-        new_user = optarg;
-        break;
-      case 't':
-        enable_tcp = true;
-        break;
       case 'c':
-        enable_cache = true;
-        break;
-      case 's':
-        statisticsFile = optarg;
-        break;
+        return optarg;
       default:
         print_usage(argv);
         exit(EXIT_FAILURE);
     }
   }
-
-  if (local_address == nullptr or remote_address == nullptr or local_port == 0) {
-    print_usage(argv);
-    exit(EXIT_FAILURE);
-  }
-
+  return "";
 }
 
 void prinVersionInfos() {
@@ -1762,17 +1772,33 @@ int main(int argc, char *argv[]) {
 
   prinVersionInfos();
 
-  char *new_user = nullptr;
-  char *local_address = nullptr;
+  const char *local_address = nullptr;
   uint16_t local_port = 0;
-  char *remote_address = nullptr;
-  char *localnet_server_address = nullptr;
-  char *statisticsFile = nullptr;
+  const char *remote_address = nullptr;
+  const char *localnet_server_address = nullptr;
 
-  parseArguments(argc, argv, localnet_server_address, local_address, local_port, remote_address, new_user,
-                 statisticsFile);
+  std::string config_filename = parseArguments(argc, argv);
+  
+  if (config_filename.empty()){
+    std::cerr << "config file can not empty" << std::endl;
+    print_usage(argv);
+    exit(1);
+  }
 
-  Dns::load_polluted_domains("pollution_domains.config");
+  config = load_json_config(config_filename);
+
+  local_address = config->localAddress.c_str();
+  local_port = config->localPort;
+
+  remote_address = config->remote_server_address.c_str();
+  localnet_server_address = config->localnet_server_address.c_str();
+
+  bDaemon = config->daemonMode;
+
+
+  Dns::load_polluted_domains(config->polution);
+
+
 
   std::cout << "Start Server ..." << std::endl;
   if (bDaemon) {
@@ -1815,7 +1841,7 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
   int server_sock_tcp = 0;
-  if (enable_tcp) {
+  if (config->enableTcp) {
     server_sock_tcp = socket(server_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
     if (server_sock_tcp < 0) {
       perror("Can not open socket ");
@@ -1838,10 +1864,10 @@ int main(int argc, char *argv[]) {
 
   if (inet_pton(AF_INET6, remote_address, &((sockaddr_in6 *) &upserver_addr)->sin6_addr)) {
     upserver_addr.ss_family = AF_INET6;
-    ((sockaddr_in6 *) &upserver_addr)->sin6_port = htons(53);
+    ((sockaddr_in6 *) &upserver_addr)->sin6_port = htons(config->remote_server_port);
   } else if (inet_pton(AF_INET, remote_address, &((sockaddr_in *) &upserver_addr)->sin_addr)) {
     upserver_addr.ss_family = AF_INET;
-    ((sockaddr_in *) &upserver_addr)->sin_port = htons(53);
+    ((sockaddr_in *) &upserver_addr)->sin_port = htons(config->remote_server_port);
   } else {
     std::cerr << "Remote addresss is invaild" << std::endl;
     if (bDaemon) syslog(LOG_ERR, "Remote addresss(%s) is invaild", remote_address);
@@ -1856,23 +1882,26 @@ int main(int argc, char *argv[]) {
 
   bzero(&localnet_server_addr, sizeof(localnet_server_addr));
 
-  if (inet_pton(AF_INET, localnet_server_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
+  if (inet_pton(AF_INET6, localnet_server_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
+    localnet_server_addr.ss_family = AF_INET6;
+    ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(config->localnet_server_port);
+  } else if (inet_pton(AF_INET, remote_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
     localnet_server_addr.ss_family = AF_INET;
-    ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(53);
+    ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(config->localnet_server_port);
   } else {
     std::cerr << "local net dns server address resolve error" << std::endl;
     exit(EXIT_FAILURE);
   }
 
-  localnet_server_sock = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+  localnet_server_sock = socket(localnet_server_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 
   if (localnet_server_sock < 0) {
     perror("Can not open socket for localnet dns server");
     exit(EXIT_FAILURE);
   }
 
-  if (new_user) {
-    struct passwd *pass = getpwnam(new_user);
+  if (!config->suUsername.empty()) {
+    struct passwd *pass = getpwnam(config->suUsername.c_str());
     if (pass) {
       setgid(pass->pw_gid);
       setuid(pass->pw_uid);
@@ -1891,7 +1920,7 @@ int main(int argc, char *argv[]) {
   ev.data.fd = server_sock;
   epoll_ctl(epollfd, EPOLL_CTL_ADD, server_sock, &ev);
 
-  if (enable_tcp) {
+  if (config->enableTcp) {
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = server_sock_tcp;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, server_sock_tcp, &ev);
@@ -1915,7 +1944,7 @@ int main(int argc, char *argv[]) {
   epoll_ctl(epollfd, EPOLL_CTL_ADD, tfd, &ev);
 
   int cache_tfd;
-  if (enable_cache) {
+  if (config->enableCache) {
     cache_tfd = timerfd_create(CLOCK_MONOTONIC, 0);
     ev.events = EPOLLIN | EPOLLET;
     ev.data.fd = cache_tfd;
@@ -1959,7 +1988,7 @@ int main(int argc, char *argv[]) {
   itimer.it_interval.tv_sec = 0;
 
 
-  DnsQueryStatistics statistics(statisticsFile ? statisticsFile : "");
+  DnsQueryStatistics statistics(config->statisticsFile);
 
   for (;;) {
     int nfds = epoll_wait(epollfd, events, 100, -1);
@@ -1970,13 +1999,13 @@ int main(int argc, char *argv[]) {
         readRemoteServerResponse(server_sock, buf);
       } else if (events[_n].data.fd == localnet_server_sock) {
         readLocalServerResponse(server_sock, buf);
-      } else if (enable_tcp and events[_n].data.fd == server_sock_tcp) {
+      } else if (config->enableTcp and events[_n].data.fd == server_sock_tcp) {
         acceptTcpIncome(server_sock_tcp, epollfd, cliaddr, socklen, ev);
-      } else if (enable_tcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
+      } else if (config->enableTcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
         readIncomeTcpQuery(epollfd, buf, events[_n], statistics);
-      } else if (enable_tcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
+      } else if (config->enableTcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
         HandleServerSideTcp(epollfd, buf, events[_n]);
-      } else if (enable_cache and events[_n].data.fd == cache_tfd) {
+      } else if (config->enableCache and events[_n].data.fd == cache_tfd) {
         DEBUG("cache time out")
         cache.timeout();
 
@@ -1995,7 +2024,7 @@ int main(int argc, char *argv[]) {
 
   end:
   if (bDaemon) closelog();
-
+  delete config;
   close(epollfd);
   close(server_sock);
   close(upserver_sock);
