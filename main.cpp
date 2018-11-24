@@ -31,6 +31,10 @@
 #include <functional>
 #include <boost/algorithm/string.hpp>
 #include <fmt/printf.h>
+#include <algorithm>    // std::shuffle
+#include <array>        // std::array
+#include <random>       // std::default_random_engine
+#include <chrono>       // std::chrono::system_clock
 
 // Example of __DATE__ string: "Jul 27 2012"
 // Example of __TIME__ string: "21:06:19"
@@ -918,6 +922,16 @@ Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
     dns2->signs = dns.signs;
     dns2->signs |= Dns::RA | Dns::QR;
     dns2->questions = dns.questions;
+
+    // shuffle the answers to realize the loadbalance
+    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    for (auto iterator = res_anss.begin(); iterator != res_anss.end(); ++iterator) {
+      if (iterator->Type == q.Type) {
+        shuffle(iterator, res_anss.end(), std::default_random_engine(seed));
+        break;
+      }
+    }
+
     dns2->answers = res_anss;
     return dns2;
   }
@@ -1040,11 +1054,23 @@ public:
     }
     *os << "------------ statistics ------------------------" << std::endl;
 
-    *os << "Count\tClass\tType\t\tName" << std::endl;
-    for (auto &item : _statistics) {
-      auto &q = item.first;
-      *os << item.second << "\t\t" << Dns::QClass2Name[q.Class] << "\t\t" << Dns::QType2Name[q.Type]
-          << "\t\t" << q.name << std::endl;
+    int max_name_len = 0;
+    std::vector<std::pair<long , Dns::Question>> result_list;
+    for (auto &item : _statistics){
+      max_name_len = std::max(max_name_len, static_cast<int>(item.first.name.length()));
+      result_list.push_back(std::make_pair(item.second,item.first));
+    }
+
+    std::string format_str1 = fmt::sprintf("%%%ds%%10s%%10s%%12s\n",max_name_len+5);
+    std::string format_str2 = fmt::sprintf("%%%ds%%10s%%10s%%12d\n",max_name_len+5);
+
+    *os << fmt::sprintf(format_str1.c_str(),"Name", "Class", "Type", "Count");
+
+    // sort count by descending order
+    std::sort(result_list.begin(), result_list.end(), [](auto& i1, auto &i2){ return (i1.first > i2.first);});
+    for (auto &item : result_list) {
+      auto &q = item.second;
+      *os << fmt::sprintf(format_str2.c_str(), q.name,Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type], item.first);
     }
     *os << "------------------------------------------------" << std::endl;
     if (typeid(*os) == typeid(std::ofstream)) {
