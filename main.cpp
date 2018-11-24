@@ -104,7 +104,6 @@
 #define BUILD_SEC   ((BUILD_TIME_IS_BAD) ? 99 :  COMPUTE_BUILD_SEC)
 
 
-
 #ifdef NDEBUG
 #define DEBUG(str)
 #else
@@ -121,7 +120,7 @@ bool enable_cache = false;
 
 
 inline std::string get_err_string(int num) {
-  return fmt::sprintf("__LINE__ %d",num);
+  return fmt::sprintf("__LINE__ %d", num);
 }
 
 class out_of_bound : public std::runtime_error {
@@ -523,7 +522,7 @@ void Dns::print() {
   std::cout << "Answers" << std::endl;
   for (auto &ans : answers) {
     std::cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name[ans.Type] << "  " << ans.rdata
-         << std::endl;
+              << std::endl;
   }
 
 }
@@ -621,8 +620,8 @@ uint16_t get_id() {
 
 void print_usage(char *argv[]) {
   std::cerr << "Usage: " << argv[0]
-       << " [-d] [-u user] [-6] [-g] [-t] [-c] -s statistics_file -l local_address -p local_port -b localnet_server_addresss -r remote_address"
-       << std::endl;
+            << " [-d] [-u user] [-6] [-g] [-t] [-c] -s statistics_file -l local_address -p local_port -b localnet_server_addresss -r remote_address"
+            << std::endl;
   std::cerr << "-6 : ipv6 first" << std::endl;
   std::cerr << "-d : daemon mode" << std::endl;
   std::cerr << "-g : great firewall mode" << std::endl;
@@ -860,10 +859,10 @@ private:
 };
 
 Cache::~Cache() {
-  for (auto r : sorted_heap){
+  for (auto r : sorted_heap) {
     delete r;
   }
-  for (auto &item : item_hash){
+  for (auto &item : item_hash) {
     delete item.second;
   }
 }
@@ -1052,27 +1051,31 @@ public:
         return;
       }
     }
-    *os << "------------ statistics ------------------------" << std::endl;
+    *os << "---------------------- statistics ------------------------" << std::endl;
 
     int max_name_len = 0;
-    std::vector<std::pair<long , Dns::Question>> result_list;
-    for (auto &item : _statistics){
-      max_name_len = std::max(max_name_len, static_cast<int>(item.first.name.length()));
-      result_list.push_back(std::make_pair(item.second,item.first));
+    std::vector<std::unordered_map<Dns::Question, long, KeyHasher>::iterator> result_list;
+    for (auto iterator = _statistics.begin(); iterator != _statistics.end(); ++iterator) {
+      max_name_len = std::max(max_name_len, static_cast<int>(iterator->first.name.length()));
+      result_list.push_back(iterator);
     }
 
-    std::string format_str1 = fmt::sprintf("%%%ds%%10s%%10s%%12s\n",max_name_len+5);
-    std::string format_str2 = fmt::sprintf("%%%ds%%10s%%10s%%12d\n",max_name_len+5);
+    std::string format_str1 = fmt::sprintf("%%%ds%%10s%%10s%%12s\n", max_name_len + 5);
+    std::string format_str2 = fmt::sprintf("%%%ds%%10s%%10s%%12d\n", max_name_len + 5);
 
-    *os << fmt::sprintf(format_str1.c_str(),"Name", "Class", "Type", "Count");
+    *os << fmt::sprintf(format_str1, "Name", "Class", "Type", "Count");
 
     // sort count by descending order
-    std::sort(result_list.begin(), result_list.end(), [](auto& i1, auto &i2){ return (i1.first > i2.first);});
+    std::sort(result_list.begin(), result_list.end(), [](auto &i1, auto &i2) { return (i1->second > i2->second); });
+    long total_count = 0;
     for (auto &item : result_list) {
-      auto &q = item.second;
-      *os << fmt::sprintf(format_str2.c_str(), q.name,Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type], item.first);
+      auto &q = item->first;
+      *os << fmt::sprintf(format_str2, q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type], item->second);
+      total_count += item->second;
     }
-    *os << "------------------------------------------------" << std::endl;
+    *os << "----------------------------------------------------------" << std::endl;
+    *os << fmt::sprintf(fmt::sprintf("Total%%%dd\n", max_name_len + 10 + 10 + 12), total_count);
+    *os << "----------------------------------------------------------" << std::endl;
     if (typeid(*os) == typeid(std::ofstream)) {
       delete os;
     }
@@ -1157,7 +1160,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
     } catch (out_of_bound &err) {
       delete upstream;
       return nullptr;
-    } catch (BadDnsError&) {
+    } catch (BadDnsError &) {
       delete upstream;
       return nullptr;
     }
@@ -1513,9 +1516,9 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         if (!add_upstream(up->buf, up->buf_len, up)) return;
         int upfd;
 
-        if (up->dns1.use_localnet_dns_server){
+        if (up->dns1.use_localnet_dns_server) {
           upfd = socket(localnet_server_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
-        }else {
+        } else {
           upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
         }
         if (upfd < 0) {
@@ -1531,7 +1534,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         if (up->dns1.use_localnet_dns_server) {
           ret = connect(upfd, (sockaddr *) &localnet_server_addr, sizeof(localnet_server_addr));
           DEBUG("Tcp connect to localnet dns server ...")
-        }else{
+        } else {
           ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
           DEBUG("Tcp connect to remote dns server ...")
         }
@@ -1743,11 +1746,12 @@ void parseArguments(int argc, char *argv[], char *&localnet_server_address, char
 
 }
 
-void prinVersionInfos(){
+void prinVersionInfos() {
   std::cout << "----------------------------------------------------------------------" << std::endl;
   std::cout << "CMake Configure Time : " << CMAKE_CONFIGURE_TIME << std::endl;
   std::cout << "  Binaray Build Time : " << fmt::sprintf("%04d-%02d-%02d %02d:%02d:%2d\n",
-      BUILD_YEAR,BUILD_MONTH,BUILD_DAY,BUILD_HOUR,BUILD_MIN,BUILD_SEC);
+                                                         BUILD_YEAR, BUILD_MONTH, BUILD_DAY, BUILD_HOUR, BUILD_MIN,
+                                                         BUILD_SEC);
   std::cout << "             Version : " << DNSSTUB_VERSION << std::endl;
   std::cout << "              Author : " << DNSSTUB_AUTHOR << std::endl;
   std::cout << "----------------------------------------------------------------------" << std::endl << std::endl;
@@ -1793,9 +1797,9 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  if(server_addr.ss_family == AF_INET){
+  if (server_addr.ss_family == AF_INET) {
     std::cout << fmt::sprintf("listen at %s:%d\n", local_address, local_port);
-  }else{
+  } else {
     std::cout << fmt::sprintf("listen at [%s]:%d\n", local_address, local_port);
   }
 
