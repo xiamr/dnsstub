@@ -15,6 +15,22 @@ include_directories(${Boost_INCLUDE_DIR} )
 link_libraries(${Boost_LIBRARIES} )
 message(STATUS ${Boost_LIBRARIES})
 
+string(REPLACE ":" ";" LIBRARY_DIRS $ENV{LIBRARY_PATH})
+string(REPLACE ":" ";" CPATH_DIRS $ENV{CPATH})
+string(REPLACE ":" ";" INCLUDE_DIRS $ENV{INCLUDE})
+find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${INCLUDE_DIRS})
+if(NOT PUGIXML_INCLUDES)
+    message(FATAL_ERROR "xml parse library < pugixml header file> not found")
+endif()
+include_directories(${PUGIXML_INCLUDES})
+
+find_library(LIBPUGIXML pugixml PATHS ${LIBRARY_DIRS})
+if(NOT LIBPUGIXML)
+    message(FATAL_ERROR "xml parse library < pugixml library file> not found")
+endif()
+link_libraries(pugixml)
+
+
 include_directories(${PROJECT_BINARY_DIR})
 string(TIMESTAMP CMAKE_CONFIGURE_TIME "%Y-%m-%d %H:%M:%S")
 configure_file(config.h.cmake config.h)

@@ -36,6 +36,7 @@
 #include <random>       // std::default_random_engine
 #include <chrono>       // std::chrono::system_clock
 #include "json.hpp"
+#include <pugixml.hpp>
 
 using json = nlohmann::json;
 
@@ -638,7 +639,7 @@ uint16_t get_id() {
   return id++;
 }
 
-void print_usage(char *argv[]) {
+void print_usage(char *const *argv) {
   std::cerr << "Usage: " << argv[0] << "-c config_filename" << std::endl;
 }
 
@@ -973,7 +974,7 @@ void Dns::load_polluted_domains(const std::string &config_filename) {
     fs.close();
     return;
   }
-  std::cerr << "config file (" << config_filename << ") was not opened !" << std::endl;
+  std::cerr << "pollution file (" << config_filename << ") was not opened !" << std::endl;
 }
 
 bool Dns::isDomainValid(const std::string &domain) {
@@ -1094,6 +1095,8 @@ public:
     }
   }
 };
+
+void load_config_file(char *const *argv, const std::string &config_filename);
 
 bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   if (upstream->dns1.questions.empty()) {
@@ -1700,6 +1703,46 @@ void reqMessageTimeoutHandler() {
   }
 }
 
+Config* load_xml_config(std::string filename){
+  pugi::xml_document doc;
+  pugi::xml_parse_result result = doc.load_file(filename.c_str());
+
+  if (!result) return nullptr;
+  
+  auto config = new Config();
+
+  const pugi::xml_node &root = doc.child("config");
+
+  config->localAddress = root.child("localAddress").text().as_string();
+  config->localPort = root.child("localPort").text().as_int(53);
+
+  const pugi::xml_node &su = root.child("su");
+  if (!su.empty()) config->suUsername = su.text().as_string();
+
+  const pugi::xml_node &statstics = root.child("statisticsFile");
+  if (!statstics.empty()) config->statisticsFile = statstics.text().as_string();
+
+  const pugi::xml_node &polution = root.child("pollution");
+  if (!polution.empty()) config->polution = polution.text().as_string();
+  
+  config->enableCache = root.child("enableCache").text().as_bool(false);
+  config->enableTcp = root.child("enableTcp").text().as_bool(false);
+  config->ipv6First = root.child("ipv6First").text().as_bool(false);
+  config->gfwMode = root.child("gfwMode").text().as_bool(false);
+  config->daemonMode = root.child("daemonMode").text().as_bool(false);
+
+  const pugi::xml_node &remote = root.child("remote_server");
+  config->remote_server_address = remote.attribute("address").value();
+  config->remote_server_port = remote.attribute("port").as_int(53);
+
+  const pugi::xml_node &localnet = root.child("localnet_server");
+  config->localnet_server_address = remote.attribute("address").value();
+  config->localnet_server_port = remote.attribute("port").as_int(53);
+
+  return config;
+
+}
+
 
 
 Config* load_json_config(std::string filename){
@@ -1709,14 +1752,14 @@ Config* load_json_config(std::string filename){
     json j;
     ifs >> j;
 
-    auto config = new Config;
+    auto config = new Config();
     try {
       config->localAddress = j["localAddress"];
       config->localPort = j["localPort"];
 
       config->suUsername = j.value("su","");
       config->statisticsFile = j.value("statisticsFile","");
-      config->polution = j.value("polution","");
+      config->polution = j.value("pollution","");
 
       config->enableCache = j.value("enableCache", false);
       config->enableTcp = j.value("enableTcp", false);
@@ -1756,6 +1799,18 @@ std::string parseArguments(int argc, char *argv[]) {
   return "";
 }
 
+void load_config_file(char *const *argv, const std::string &config_filename) {
+  if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.json$)"))) {
+    config = load_json_config(config_filename);
+  } else if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.xml$)"))){
+    config = load_xml_config(config_filename);
+  } else{
+    std::cerr << "Error type of config file (either json or xml)" << std::endl;
+    print_usage(argv);
+    exit(1);
+  }
+}
+
 void prinVersionInfos() {
   std::cout << "----------------------------------------------------------------------" << std::endl;
   std::cout << "CMake Configure Time : " << CMAKE_CONFIGURE_TIME << std::endl;
@@ -1785,7 +1840,7 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
-  config = load_json_config(config_filename);
+  load_config_file(argv, config_filename);
 
   local_address = config->localAddress.c_str();
   local_port = config->localPort;
@@ -2032,6 +2087,8 @@ int main(int argc, char *argv[]) {
   std::cout << "EXIT_SUCCESS" << std::endl;
   return EXIT_SUCCESS;
 }
+
+
 
 
 
