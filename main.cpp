@@ -137,7 +137,18 @@ public:
 
   std::string localnet_server_address;
   uint16_t localnet_server_port;
+
+  void trimAll();
 };
+
+void Config::trimAll() {
+  boost::trim(localAddress);
+  boost::trim(suUsername);
+  boost::trim(statisticsFile);
+  boost::trim(polution);
+  boost::trim(remote_server_address);
+  boost::trim(localnet_server_address);
+}
 
 Config *config = nullptr;
 
@@ -495,7 +506,7 @@ std::string Dns::getName(char *&ptr, char *buf, const char *upbound) {
     if (count & 0xc0) {
       // compressed label
       if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
-      locate = buf + 256 * (count & 0x3f) + *((uint8_t * )(ptr + 1));
+      locate = buf + 256 * (count & 0x3f) + *((uint8_t *) (ptr + 1));
       if (!first) name.append(1, '.');
       else first = false;
       name += getName(locate, buf, upbound);
@@ -1230,7 +1241,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           struct epoll_event ev;
           ev.events = EPOLLET | EPOLLOUT | EPOLLRDHUP;
           ev.data.fd = upfd;
-          int ret = connect(upfd, (sockaddr * ) & upserver_addr, sizeof(upserver_addr));
+          int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
           if (ret < 0 and errno != EINPROGRESS) {
             if (bDaemon) syslog(LOG_ERR, "connect failed %d : %s ", __LINE__, strerror(errno));
             return nullptr;
@@ -1239,13 +1250,13 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           server_tcp_con[upfd] = upstream;
         } else {
           if (upstream->dns1.use_localnet_dns_server) {
-            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr * ) & localnet_server_addr,
+            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                        sizeof(localnet_server_addr)) < 0) {
               std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
               if (bDaemon)
                 syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
             }
-          } else if (sendto(upserver_sock, buf, n, 0, (sockaddr * ) & upserver_addr, sizeof(upserver_addr)) <
+          } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
                      0) {
             std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
             if (bDaemon) syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
@@ -1341,7 +1352,7 @@ void read_buf(int fd, char *buf, Upstream *up) {
 
 void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr, socklen_t &socklen, epoll_event &ev) {
   for (;;) {
-    int newcon = accept4(server_sock_tcp, (sockaddr * ) & cliaddr, &socklen, SOCK_NONBLOCK);
+    int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
     if (newcon < 0) {
       if (errno != EAGAIN)
         perror("accept error :");
@@ -1370,7 +1381,7 @@ void readLocalServerResponse(int server_sock, char *buf) {
 
     *(uint16_t *) buf = htons(upstream->cli_id);
     DEBUG("send udp response to client")
-    sendto(server_sock, buf, n, 0, (sockaddr * ) & upstream->cliaddr, upstream->socklen);
+    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
     delete upstream;
     upstream = nullptr;
@@ -1386,7 +1397,7 @@ void readRemoteServerResponse(int server_sock, char *buf) {
 
     *(uint16_t *) buf = htons(upstream->cli_id);
     DEBUG("send udp response to client")
-    sendto(server_sock, buf, n, 0, (sockaddr * ) & upstream->cliaddr, upstream->socklen);
+    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
     delete upstream;
     upstream = nullptr;
@@ -1396,7 +1407,7 @@ void readRemoteServerResponse(int server_sock, char *buf) {
 void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
                      DnsQueryStatistics &statistics) {
   ssize_t n;
-  while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr * ) & cliaddr, &socklen)) > 0) {
+  while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
     DEBUG("new udp request from client")
 
     auto up = new Upstream;
@@ -1435,7 +1446,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
       }
       DEBUG("send response to client from cache")
-      sendto(server_sock, buf, n, 0, (sockaddr * ) & cliaddr, socklen);
+      sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
       delete response;
       delete up;
     } else {
@@ -1456,13 +1467,13 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       }
       DEBUG("send udp request to server")
       if (up->dns1.use_localnet_dns_server) {
-        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr * ) & localnet_server_addr,
+        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                    sizeof(localnet_server_addr)) <
             0) {
           std::cerr << "send error : " << __LINE__ << std::endl;
           if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
         }
-      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr * ) & upserver_addr,
+      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
                         sizeof(upserver_addr)) < 0) {
         std::cerr << "send error  : " << __LINE__ << std::endl;
         if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
@@ -1545,10 +1556,10 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         DEBUG("new tcp connnect to server")
         int ret;
         if (up->dns1.use_localnet_dns_server) {
-          ret = connect(upfd, (sockaddr * ) & localnet_server_addr, sizeof(localnet_server_addr));
+          ret = connect(upfd, (sockaddr *) &localnet_server_addr, sizeof(localnet_server_addr));
           DEBUG("Tcp connect to localnet dns server ...")
         } else {
-          ret = connect(upfd, (sockaddr * ) & upserver_addr, sizeof(upserver_addr));
+          ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
           DEBUG("Tcp connect to remote dns server ...")
         }
         if (ret < 0 and errno != EINPROGRESS) {
@@ -1602,7 +1613,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
       if (upstream == nullptr)
         return;
       *(uint16_t *) buf = htons(up->data_len);
-      *(uint16_t * )(buf + 2) = htons(upstream->cli_id);
+      *(uint16_t *) (buf + 2) = htons(upstream->cli_id);
       DEBUG("send tcp response to client")
       write(upstream->cli_fd, buf, up->data_len + 2);
       close(upstream->cli_fd);
@@ -1714,13 +1725,17 @@ Config *load_xml_config(std::string filename) {
   config->localPort = root.child("localPort").text().as_int(53);
 
   const pugi::xml_node &su = root.child("su");
-  if (!su.empty()) config->suUsername = su.text().as_string();
+  if (!su.empty()) {
+    config->suUsername = su.text().as_string();
+  }
 
   const pugi::xml_node &statstics = root.child("statisticsFile");
   if (!statstics.empty()) config->statisticsFile = statstics.text().as_string();
 
+
   const pugi::xml_node &polution = root.child("pollution");
   if (!polution.empty()) config->polution = polution.text().as_string();
+
 
   config->enableCache = root.child("enableCache").text().as_bool(false);
   config->enableTcp = root.child("enableTcp").text().as_bool(false);
@@ -1735,6 +1750,8 @@ Config *load_xml_config(std::string filename) {
   const pugi::xml_node &localnet = root.child("localnet_server");
   config->localnet_server_address = remote.attribute("address").value();
   config->localnet_server_port = remote.attribute("port").as_int(53);
+
+  config->trimAll();
 
   return config;
 
@@ -1774,9 +1791,10 @@ Config *load_json_config(std::string filename) {
 
     } catch (json::exception &exception) {
       std::cerr << exception.what() << std::endl;
+      delete config;
       return nullptr;
     }
-
+    config->trimAll();
     return config;
   }
   return nullptr;
@@ -1790,7 +1808,8 @@ std::string parseArguments(int argc, char *argv[]) {
   boost::program_options::options_description desc("Dns cache server bypass great firewall");
   desc.add_options()
       ("help,h", "show this help message")
-      ("config,c", boost::program_options::value<std::string>(&config_filename)->required(), "config file (json or xml format)");
+      ("config,c", boost::program_options::value<std::string>(&config_filename)->required(),
+       "config file (json or xml format)");
   boost::program_options::positional_options_description p;
   p.add("config", 1);
   boost::program_options::variables_map variablesMap;
@@ -1894,7 +1913,7 @@ int main(int argc, char *argv[]) {
     if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
     exit(EXIT_FAILURE);
   }
-  if (bind(server_sock, (sockaddr * ) & server_addr, sizeof(server_addr)) == -1) {
+  if (bind(server_sock, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
     perror("bind failed !");
     if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
     exit(EXIT_FAILURE);
@@ -1907,7 +1926,7 @@ int main(int argc, char *argv[]) {
       if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
       exit(EXIT_FAILURE);
     }
-    if (bind(server_sock_tcp, (sockaddr * ) & server_addr, sizeof(server_addr)) == -1) {
+    if (bind(server_sock_tcp, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
       perror("bind failed !");
       if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
       exit(EXIT_FAILURE);
