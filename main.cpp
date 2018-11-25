@@ -1094,7 +1094,6 @@ public:
   }
 };
 
-void load_config_file(char *const *argv, const std::string &config_filename);
 
 bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   if (upstream->dns1.questions.empty()) {
@@ -1813,10 +1812,10 @@ std::string parseArguments(int argc, char *argv[]) {
   return config_filename;
 }
 
-void load_config_file(char *const *argv, const std::string &config_filename) {
-  if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.json$)"))) {
+void load_config_file(const std::string &config_filename) {
+  if (regex_match(config_filename, std::regex(R"(.+\.json$)"))) {
     config = load_json_config(config_filename);
-  } else if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.xml$)"))) {
+  } else if (regex_match(config_filename, std::regex(R"(.+\.xml$)"))) {
     config = load_xml_config(config_filename);
   } else {
     std::cerr << "Error type of config file (either json or xml format)" << std::endl;
@@ -1847,7 +1846,7 @@ int main(int argc, char *argv[]) {
 
   std::string config_filename = parseArguments(argc, argv);
 
-  load_config_file(argv, config_filename);
+  load_config_file(config_filename);
 
   local_address = config->localAddress.c_str();
   local_port = config->localPort;
