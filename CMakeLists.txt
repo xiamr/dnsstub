@@ -5,20 +5,33 @@ file(STRINGS "VERSION" DNSSTUB_VERSION)
 set(DNSSTUB_AUTHOR "MiaoRen Xia")
 
 set(CMAKE_CXX_STANDARD 14)
-find_library(HAVE_LIBRT rt)
-if (NOT DEFINED HAVE_LIBRT)
-    message(SEND_ERROR "rt library not found")
-endif ()
-link_libraries(rt fmt)
-find_package(Boost REQUIRED)
-include_directories(${Boost_INCLUDE_DIR} )
-link_libraries(${Boost_LIBRARIES} )
-message(STATUS ${Boost_LIBRARIES})
+
 
 string(REPLACE ":" ";" LIBRARY_DIRS $ENV{LIBRARY_PATH})
 string(REPLACE ":" ";" CPATH_DIRS $ENV{CPATH})
-string(REPLACE ":" ";" INCLUDE_DIRS $ENV{INCLUDE})
-find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${INCLUDE_DIRS})
+if ($ENV{C_INCLUDE_PATH})
+    string(REPLACE ":" ";" C_INCLUDE_DIRS $ENV{C_INCLUDE_PATH})
+endif()
+if ($ENV{CPLUS_INCLUDE_PATH})
+    string(REPLACE ":" ";" CPLUS_INCLUDE_DIRS $ENV{CPLUS_INCLUDE_PATH})
+endif ()
+set(DEFAULT_INCLUDE_DIRS "/usr/include;/usr/local/include")
+
+find_library(HAVE_LIBRT rt)
+if (NOT DEFINED HAVE_LIBRT)
+    message(FATAL_ERROR "rt library not found")
+endif ()
+link_libraries(rt)
+
+# Boost
+set(BOOST_INCLUDEDIR ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
+set(BOOST_LIBRARYDIR ${LIBRARY_DIRS})
+find_package(Boost REQUIRED COMPONENTS program_options)
+include_directories(${Boost_INCLUDE_DIRS})
+link_libraries(${Boost_LIBRARIES})
+
+# pugixml
+find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
 if(NOT PUGIXML_INCLUDES)
     message(FATAL_ERROR "xml parse library < pugixml header file> not found")
 endif()
@@ -29,6 +42,19 @@ if(NOT LIBPUGIXML)
     message(FATAL_ERROR "xml parse library < pugixml library file> not found")
 endif()
 link_libraries(pugixml)
+
+# fmt
+find_path(FMT_INCLUDES "fmt/printf.h" PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
+if(NOT FMT_INCLUDES)
+    message(FATAL_ERROR "fmt library < fmt header file> not found")
+endif()
+include_directories(${FMT_INCLUDES})
+
+find_library(LIBFMT fmt PATHS ${LIBRARY_DIRS})
+if(NOT LIBFMT)
+    message(FATAL_ERROR "fmt library < fmt library file> not found")
+endif()
+link_libraries(fmt)
 
 
 include_directories(${PROJECT_BINARY_DIR})

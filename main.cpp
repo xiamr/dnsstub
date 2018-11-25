@@ -37,8 +37,10 @@
 #include <chrono>       // std::chrono::system_clock
 #include "json.hpp"
 #include <pugixml.hpp>
+#include <boost/program_options.hpp>
 
 using json = nlohmann::json;
+
 
 // Example of __DATE__ string: "Jul 27 2012"
 // Example of __TIME__ string: "21:06:19"
@@ -493,7 +495,7 @@ std::string Dns::getName(char *&ptr, char *buf, const char *upbound) {
     if (count & 0xc0) {
       // compressed label
       if (ptr + 1 > upbound) throw out_of_bound(__LINE__);
-      locate = buf + 256 * (count & 0x3f) + *((uint8_t *) (ptr + 1));
+      locate = buf + 256 * (count & 0x3f) + *((uint8_t * )(ptr + 1));
       if (!first) name.append(1, '.');
       else first = false;
       name += getName(locate, buf, upbound);
@@ -637,10 +639,6 @@ int setnonblocking(int fd) {
 uint16_t get_id() {
   static uint16_t id = 0;
   return id++;
-}
-
-void print_usage(char *const *argv) {
-  std::cerr << "Usage: " << argv[0] << "-c config_filename" << std::endl;
 }
 
 
@@ -1233,7 +1231,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           struct epoll_event ev;
           ev.events = EPOLLET | EPOLLOUT | EPOLLRDHUP;
           ev.data.fd = upfd;
-          int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+          int ret = connect(upfd, (sockaddr * ) & upserver_addr, sizeof(upserver_addr));
           if (ret < 0 and errno != EINPROGRESS) {
             if (bDaemon) syslog(LOG_ERR, "connect failed %d : %s ", __LINE__, strerror(errno));
             return nullptr;
@@ -1242,13 +1240,13 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           server_tcp_con[upfd] = upstream;
         } else {
           if (upstream->dns1.use_localnet_dns_server) {
-            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr * ) & localnet_server_addr,
                        sizeof(localnet_server_addr)) < 0) {
               std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
               if (bDaemon)
                 syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
             }
-          } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
+          } else if (sendto(upserver_sock, buf, n, 0, (sockaddr * ) & upserver_addr, sizeof(upserver_addr)) <
                      0) {
             std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
             if (bDaemon) syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
@@ -1344,7 +1342,7 @@ void read_buf(int fd, char *buf, Upstream *up) {
 
 void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr, socklen_t &socklen, epoll_event &ev) {
   for (;;) {
-    int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
+    int newcon = accept4(server_sock_tcp, (sockaddr * ) & cliaddr, &socklen, SOCK_NONBLOCK);
     if (newcon < 0) {
       if (errno != EAGAIN)
         perror("accept error :");
@@ -1373,7 +1371,7 @@ void readLocalServerResponse(int server_sock, char *buf) {
 
     *(uint16_t *) buf = htons(upstream->cli_id);
     DEBUG("send udp response to client")
-    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+    sendto(server_sock, buf, n, 0, (sockaddr * ) & upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
     delete upstream;
     upstream = nullptr;
@@ -1389,7 +1387,7 @@ void readRemoteServerResponse(int server_sock, char *buf) {
 
     *(uint16_t *) buf = htons(upstream->cli_id);
     DEBUG("send udp response to client")
-    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+    sendto(server_sock, buf, n, 0, (sockaddr * ) & upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
     delete upstream;
     upstream = nullptr;
@@ -1399,7 +1397,7 @@ void readRemoteServerResponse(int server_sock, char *buf) {
 void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
                      DnsQueryStatistics &statistics) {
   ssize_t n;
-  while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
+  while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr * ) & cliaddr, &socklen)) > 0) {
     DEBUG("new udp request from client")
 
     auto up = new Upstream;
@@ -1438,7 +1436,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
       }
       DEBUG("send response to client from cache")
-      sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
+      sendto(server_sock, buf, n, 0, (sockaddr * ) & cliaddr, socklen);
       delete response;
       delete up;
     } else {
@@ -1459,13 +1457,13 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       }
       DEBUG("send udp request to server")
       if (up->dns1.use_localnet_dns_server) {
-        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr * ) & localnet_server_addr,
                    sizeof(localnet_server_addr)) <
             0) {
           std::cerr << "send error : " << __LINE__ << std::endl;
           if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
         }
-      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
+      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr * ) & upserver_addr,
                         sizeof(upserver_addr)) < 0) {
         std::cerr << "send error  : " << __LINE__ << std::endl;
         if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
@@ -1548,10 +1546,10 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         DEBUG("new tcp connnect to server")
         int ret;
         if (up->dns1.use_localnet_dns_server) {
-          ret = connect(upfd, (sockaddr *) &localnet_server_addr, sizeof(localnet_server_addr));
+          ret = connect(upfd, (sockaddr * ) & localnet_server_addr, sizeof(localnet_server_addr));
           DEBUG("Tcp connect to localnet dns server ...")
         } else {
-          ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+          ret = connect(upfd, (sockaddr * ) & upserver_addr, sizeof(upserver_addr));
           DEBUG("Tcp connect to remote dns server ...")
         }
         if (ret < 0 and errno != EINPROGRESS) {
@@ -1605,7 +1603,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
       if (upstream == nullptr)
         return;
       *(uint16_t *) buf = htons(up->data_len);
-      *(uint16_t *) (buf + 2) = htons(upstream->cli_id);
+      *(uint16_t * )(buf + 2) = htons(upstream->cli_id);
       DEBUG("send tcp response to client")
       write(upstream->cli_fd, buf, up->data_len + 2);
       close(upstream->cli_fd);
@@ -1703,12 +1701,12 @@ void reqMessageTimeoutHandler() {
   }
 }
 
-Config* load_xml_config(std::string filename){
+Config *load_xml_config(std::string filename) {
   pugi::xml_document doc;
   pugi::xml_parse_result result = doc.load_file(filename.c_str());
 
   if (!result) return nullptr;
-  
+
   auto config = new Config();
 
   const pugi::xml_node &root = doc.child("config");
@@ -1724,7 +1722,7 @@ Config* load_xml_config(std::string filename){
 
   const pugi::xml_node &polution = root.child("pollution");
   if (!polution.empty()) config->polution = polution.text().as_string();
-  
+
   config->enableCache = root.child("enableCache").text().as_bool(false);
   config->enableTcp = root.child("enableTcp").text().as_bool(false);
   config->ipv6First = root.child("ipv6First").text().as_bool(false);
@@ -1744,8 +1742,7 @@ Config* load_xml_config(std::string filename){
 }
 
 
-
-Config* load_json_config(std::string filename){
+Config *load_json_config(std::string filename) {
   std::ifstream ifs;
   ifs.open(filename);
   if (!ifs.fail()) {
@@ -1757,9 +1754,9 @@ Config* load_json_config(std::string filename){
       config->localAddress = j["localAddress"];
       config->localPort = j["localPort"];
 
-      config->suUsername = j.value("su","");
-      config->statisticsFile = j.value("statisticsFile","");
-      config->polution = j.value("pollution","");
+      config->suUsername = j.value("su", "");
+      config->statisticsFile = j.value("statisticsFile", "");
+      config->polution = j.value("pollution", "");
 
       config->enableCache = j.value("enableCache", false);
       config->enableTcp = j.value("enableTcp", false);
@@ -1768,17 +1765,19 @@ Config* load_json_config(std::string filename){
       config->daemonMode = j.value("daemonMode", false);
 
 
-      config->remote_server_address = j.value("remote_server_address","8.8.8.8");
-      config->remote_server_port = j.value("remote_server_port",53);
+      const json &remote = j["remote_server"];
+      config->remote_server_address = remote.value("address", "8.8.8.8");
+      config->remote_server_port = remote.value("port", 53);
 
-      config->localnet_server_address = j.value("localnet_server_address","");
-      config->localnet_server_port = j.value("localnet_server_port",53);
-      
+      const json &localnet = j["localnet_server"];
+      config->localnet_server_address = localnet.value("address", "");
+      config->localnet_server_port = localnet.value("port", 53);
+
     } catch (json::exception &exception) {
       std::cerr << exception.what() << std::endl;
       return nullptr;
     }
-    
+
     return config;
   }
   return nullptr;
@@ -1786,32 +1785,46 @@ Config* load_json_config(std::string filename){
 
 
 std::string parseArguments(int argc, char *argv[]) {
-  int opt;
-  while ((opt = getopt(argc, argv, "c:")) != -1) {
-    switch (opt) {
-      case 'c':
-        return optarg;
-      default:
-        print_usage(argv);
-        exit(EXIT_FAILURE);
-    }
+
+  std::string config_filename;
+
+  boost::program_options::options_description desc("Dns cache server bypass great firewall");
+  desc.add_options()
+      ("help,h", "show this help message")
+      ("config,c", boost::program_options::value<std::string>(&config_filename)->required(), "config file (json or xml format)");
+  boost::program_options::positional_options_description p;
+  p.add("config", 1);
+  boost::program_options::variables_map variablesMap;
+  boost::program_options::store(boost::program_options::command_line_parser(argc, argv)
+                                    .options(desc).positional(p).run(), variablesMap);
+
+  if (variablesMap.count("help")) {
+    std::cout << desc;
+    exit(EXIT_SUCCESS);
   }
-  return "";
+  if (!variablesMap.count("config")) {
+    std::cerr << "-config option is required" << std::endl;
+    std::cerr << desc;
+    exit(EXIT_FAILURE);
+  }
+
+
+  boost::program_options::notify(variablesMap);
+  return config_filename;
 }
 
 void load_config_file(char *const *argv, const std::string &config_filename) {
   if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.json$)"))) {
     config = load_json_config(config_filename);
-  } else if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.xml$)"))){
+  } else if (regex_match(config_filename, std::__cxx11::regex(R"(.+\.xml$)"))) {
     config = load_xml_config(config_filename);
-  } else{
-    std::cerr << "Error type of config file (either json or xml)" << std::endl;
-    print_usage(argv);
+  } else {
+    std::cerr << "Error type of config file (either json or xml format)" << std::endl;
     exit(1);
   }
 }
 
-void prinVersionInfos() {
+void printVersionInfos() {
   std::cout << "----------------------------------------------------------------------" << std::endl;
   std::cout << "CMake Configure Time : " << CMAKE_CONFIGURE_TIME << std::endl;
   std::cout << "  Binaray Build Time : " << fmt::sprintf("%04d-%02d-%02d %02d:%02d:%2d\n",
@@ -1825,7 +1838,7 @@ void prinVersionInfos() {
 
 int main(int argc, char *argv[]) {
 
-  prinVersionInfos();
+  printVersionInfos();
 
   const char *local_address = nullptr;
   uint16_t local_port = 0;
@@ -1833,12 +1846,6 @@ int main(int argc, char *argv[]) {
   const char *localnet_server_address = nullptr;
 
   std::string config_filename = parseArguments(argc, argv);
-  
-  if (config_filename.empty()){
-    std::cerr << "config file can not empty" << std::endl;
-    print_usage(argv);
-    exit(1);
-  }
 
   load_config_file(argv, config_filename);
 
@@ -1850,9 +1857,7 @@ int main(int argc, char *argv[]) {
 
   bDaemon = config->daemonMode;
 
-
   Dns::load_polluted_domains(config->polution);
-
 
 
   std::cout << "Start Server ..." << std::endl;
@@ -1890,7 +1895,7 @@ int main(int argc, char *argv[]) {
     if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
     exit(EXIT_FAILURE);
   }
-  if (bind(server_sock, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
+  if (bind(server_sock, (sockaddr * ) & server_addr, sizeof(server_addr)) == -1) {
     perror("bind failed !");
     if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
     exit(EXIT_FAILURE);
@@ -1903,7 +1908,7 @@ int main(int argc, char *argv[]) {
       if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
       exit(EXIT_FAILURE);
     }
-    if (bind(server_sock_tcp, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
+    if (bind(server_sock_tcp, (sockaddr * ) & server_addr, sizeof(server_addr)) == -1) {
       perror("bind failed !");
       if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
       exit(EXIT_FAILURE);
