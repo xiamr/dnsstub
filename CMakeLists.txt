@@ -26,7 +26,7 @@ link_libraries(rt)
 # Boost
 set(BOOST_INCLUDEDIR ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
 set(BOOST_LIBRARYDIR ${LIBRARY_DIRS})
-find_package(Boost REQUIRED COMPONENTS program_options)
+find_package(Boost 1.67 REQUIRED COMPONENTS program_options)
 include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES})
 

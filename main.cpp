@@ -1963,7 +1963,7 @@ int main(int argc, char *argv[]) {
   if (inet_pton(AF_INET6, localnet_server_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
     localnet_server_addr.ss_family = AF_INET6;
     ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(config->localnet_server_port);
-  } else if (inet_pton(AF_INET, remote_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
+  } else if (inet_pton(AF_INET, localnet_server_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
     localnet_server_addr.ss_family = AF_INET;
     ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(config->localnet_server_port);
   } else {
