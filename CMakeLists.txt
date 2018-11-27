@@ -61,4 +61,5 @@ include_directories(${PROJECT_BINARY_DIR})
 string(TIMESTAMP CMAKE_CONFIGURE_TIME "%Y-%m-%d %H:%M:%S")
 configure_file(config.h.cmake config.h)
 set(CMAKE_VERBOSE_MAKEFILE ON)
-add_executable(dnsstub main.cpp)
+
+add_subdirectory(src)
