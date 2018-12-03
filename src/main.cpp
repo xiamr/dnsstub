@@ -36,6 +36,7 @@
 #include <chrono>       // std::chrono::system_clock
 #include "json.hpp"
 #include <boost/program_options.hpp>
+#include <boost/checked_delete.hpp>
 
 #include "Config.h"
 #include "Global.h"
@@ -53,6 +54,12 @@
 const int max_udp_len = 65536;
 bool bDaemon = false;
 Config *config = nullptr;
+
+struct SocketUnit {
+  int socket = 0;
+  int socket_tcp = 0;
+  struct sockaddr_storage addr{};
+};
 
 
 int setnonblocking(int fd) {
@@ -94,8 +101,10 @@ public:
   char len_buf[1];
   bool part_len = false;
 
+  SocketUnit *s = nullptr;
+
   ~Upstream() {
-    delete[] buf;
+    boost::checked_array_delete(buf);
   }
 };
 
@@ -117,10 +126,15 @@ int localnet_server_sock;
 Cache cache;
 long last_timer = 0;
 
+std::vector<SocketUnit *> serverSockets;
+std::unordered_map<int, SocketUnit *> udp_server_map;
+std::unordered_set<int> tcp_server_set;
+
+
 
 bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   if (upstream->dns1.questions.empty()) {
-    delete upstream;
+    boost::checked_delete(upstream);
     return false;
   }
   auto &q = upstream->dns1.questions[0];
@@ -129,7 +143,9 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   std::cout << ostr;
   if (bDaemon) syslog(LOG_INFO, "%s", ostr.c_str());
 
-  if (q.Type == Dns::A and config->ipv6First) {
+  if (q.Type == Dns::A and (Config::IPv6Mode::Full == config->ipv6First or
+                            (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
+                                                                       config->ipv6First : false))) {
     q.Type = Dns::AAAA;
     upstream->checked_ipv6 = false;
   } else {
@@ -194,10 +210,10 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
     try {
       dns1.from_wire(buf, n);
     } catch (out_of_bound &err) {
-      delete upstream;
+      boost::checked_delete(upstream);
       return nullptr;
     } catch (BadDnsError &) {
-      delete upstream;
+      boost::checked_delete(upstream);
       return nullptr;
     }
     cache.construct(dns1);
@@ -221,7 +237,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         } catch (out_of_bound &err) {
           std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
-          delete upstream;
+          boost::checked_delete(upstream);
           return nullptr;
         }
       } else {
@@ -235,7 +251,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         } catch (out_of_bound &err) {
           std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
-          delete upstream;
+          boost::checked_delete(upstream);
           return nullptr;
         }
 
@@ -307,7 +323,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         } catch (out_of_bound &err) {
           std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
-          delete upstream;
+          boost::checked_delete(upstream);
           return nullptr;
         }
       }
@@ -384,37 +400,22 @@ void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr
   }
 }
 
-void readLocalServerResponse(int server_sock, char *buf) {
+void readServerResponse(int server_sock, char *buf) {
   ssize_t n;
-  while ((n = recv(localnet_server_sock, buf, max_udp_len, 0)) > 0) {
-    DEBUG("recv udp response from localnet dns server")
+  while ((n = recv(server_sock, buf, max_udp_len, 0)) > 0) {
+    DEBUG("recv udp response from dns server")
     auto upstream = check(buf, n, false);
     if (upstream == nullptr) continue;
 
     *(uint16_t *) buf = htons(upstream->cli_id);
     DEBUG("send udp response to client")
-    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+    sendto(upstream->s->socket, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
-    delete upstream;
+    boost::checked_delete(upstream);
     upstream = nullptr;
   }
 }
 
-void readRemoteServerResponse(int server_sock, char *buf) {
-  ssize_t n;
-  while ((n = recv(upserver_sock, buf, max_udp_len, 0)) > 0) {
-    DEBUG("recv udp response from server")
-    auto upstream = check(buf, n, false);
-    if (upstream == nullptr) continue;
-
-    *(uint16_t *) buf = htons(upstream->cli_id);
-    DEBUG("send udp response to client")
-    sendto(server_sock, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
-    id_map.erase(upstream->up_id);
-    delete upstream;
-    upstream = nullptr;
-  }
-}
 
 void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
                      DnsQueryStatistics &statistics) {
@@ -432,12 +433,14 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       std::cerr << "Bad Dns " << std::endl;
     }
     if (up->dns1.questions.empty()) {
-      delete up;
+      boost::checked_delete(up);
       continue;
     }
     statistics.countNewQuery(up->dns1);
     Dns *response = nullptr;
-    if (config->ipv6First) {
+    if (Config::IPv6Mode::Full == config->ipv6First or
+        (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
+                                             config->ipv6First : false)) {
       if (up->dns1.questions[0].Type == Dns::A
           and !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
         up->dns1.questions[0].Type = Dns::AAAA;
@@ -459,19 +462,22 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       }
       DEBUG("send response to client from cache")
       sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
-      delete response;
-      delete up;
+      boost::checked_delete(response);
+      boost::checked_delete(up);
     } else {
       memcpy(&up->cliaddr, &cliaddr, socklen);
       up->socklen = socklen;
+      up->s = udp_server_map[server_sock];
       if (!add_upstream(buf, n, up)) continue;
-      if (config->ipv6First or config->gfwMode) {
+      if ((Config::IPv6Mode::Full == config->ipv6First or
+           (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
+                                                config->ipv6First : false)) or config->gfwMode) {
         try {
           n = up->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
           std::cerr << "Memory Access Error : " << err.what() << std::endl;
           if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-          delete up;
+          boost::checked_delete(up);
           continue;
         }
       } else {
@@ -511,7 +517,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         std::cerr << "Bad Dns " << std::endl;
       }
       if (up->dns1.questions.empty()) {
-        delete up;
+        boost::checked_delete(up);
         close(up->cli_fd);
         client_tcp_con.erase(up->cli_fd);
         epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
@@ -519,7 +525,9 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
       }
       statistics.countNewQuery(up->dns1);
       Dns *response = nullptr;
-      if (config->ipv6First) {
+      if (Config::IPv6Mode::Full == config->ipv6First or
+          (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
+                                               config->ipv6First : false)) {
         if (up->dns1.questions[0].Type == Dns::A and
             !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
           up->dns1.questions[0].Type = Dns::AAAA;
@@ -545,8 +553,8 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         close(up->cli_fd);
         client_tcp_con.erase(up->cli_fd);
         epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
-        delete up;
-        delete response;
+        boost::checked_delete(up);
+        boost::checked_delete(response);
 
       } else {
         if (!add_upstream(up->buf, up->buf_len, up)) return;
@@ -585,7 +593,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
     DEBUG("tcp connection errror. close it")
     close(event.data.fd);
     epoll_ctl(epollfd, EPOLL_CTL_DEL, event.data.fd, nullptr);
-    delete up;
+    boost::checked_delete(up);
     client_tcp_con.erase(event.data.fd);
   }
 
@@ -611,7 +619,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
     ev.events = EPOLLET | EPOLLIN | EPOLLERR;
     ev.data.fd = upfd;
     epoll_ctl(epollfd, EPOLL_CTL_MOD, upfd, &ev);
-    delete[] up->buf;
+    boost::checked_array_delete(up->buf);
     up->buf_len = up->data_len = 0;
     up->buf = nullptr;
     up->part_len = false;
@@ -635,7 +643,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
       epoll_ctl(epollfd, EPOLL_CTL_DEL, upstream->cli_fd, nullptr);
       epoll_ctl(epollfd, EPOLL_CTL_DEL, upstream->ser_fd, nullptr);
       id_map.erase(upstream->up_id);
-      delete upstream;
+      boost::checked_delete(upstream);
       upstream = nullptr;
     }
   } else if (event.events & EPOLLERR) {
@@ -647,7 +655,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
     epoll_ctl(epollfd, EPOLL_CTL_DEL, up->cli_fd, nullptr);
     epoll_ctl(epollfd, EPOLL_CTL_DEL, up->ser_fd, nullptr);
     id_map.erase(up->up_id);
-    delete up;
+    boost::checked_delete(up);
   }
 }
 
@@ -704,7 +712,7 @@ void reqMessageTimeoutHandler() {
       if (up == newest_up) {
         newest_up = nullptr;
       }
-      delete up;
+      boost::checked_delete(up);
       up = nullptr;
     } else {
       break;
@@ -724,14 +732,10 @@ void reqMessageTimeoutHandler() {
 }
 
 
-
-
 int main(int argc, char *argv[]) {
 
   Global::printVersionInfos();
 
-  const char *local_address = nullptr;
-  uint16_t local_port = 0;
   const char *remote_address = nullptr;
   const char *localnet_server_address = nullptr;
 
@@ -739,8 +743,6 @@ int main(int argc, char *argv[]) {
 
   config = Config::load_config_file(config_filename);
 
-  local_address = config->localAddress.c_str();
-  local_port = config->localPort;
 
   remote_address = config->remote_server_address.c_str();
   localnet_server_address = config->localnet_server_address.c_str();
@@ -758,57 +760,61 @@ int main(int argc, char *argv[]) {
     openlog(argv[0], LOG_PID, LOG_USER);
   }
 
-  struct sockaddr_storage server_addr;
-  bzero(&server_addr, sizeof(server_addr));
 
-  if (inet_pton(AF_INET6, local_address, &((sockaddr_in *) &server_addr)->sin_addr)) {
-    server_addr.ss_family = AF_INET6;
-    ((sockaddr_in6 *) &server_addr)->sin6_port = htons(local_port);
-  } else if (inet_pton(AF_INET, local_address, &((sockaddr_in *) &server_addr)->sin_addr)) {
-    server_addr.ss_family = AF_INET;
-    ((sockaddr_in *) &server_addr)->sin_port = htons(local_port);
-  } else {
-    std::cerr << "Local addresss is invaild" << std::endl;
-    if (bDaemon) syslog(LOG_ERR, "Local addresss(%s) is invaild", local_address);
-    exit(EXIT_FAILURE);
-  }
 
-  if (server_addr.ss_family == AF_INET) {
-    std::cout << fmt::sprintf("listen at %s:%d\n", local_address, local_port);
-  } else {
-    std::cout << fmt::sprintf("listen at [%s]:%d\n", local_address, local_port);
-  }
+  for (auto &local : config->locals) {
+    auto s = new SocketUnit;
+    if (inet_pton(AF_INET6, local.address.c_str(), &((sockaddr_in *) &(s->addr))->sin_addr)) {
+      s->addr.ss_family = AF_INET6;
+      ((sockaddr_in6 *) &(s->addr))->sin6_port = htons(local.port);
+    } else if (inet_pton(AF_INET, local.address.c_str(), &((sockaddr_in *) &(s->addr))->sin_addr)) {
+      s->addr.ss_family = AF_INET;
+      ((sockaddr_in *) &(s->addr))->sin_port = htons(local.port);
+    } else {
+      std::cerr << "Local addresss is invaild" << std::endl;
+      exit(EXIT_FAILURE);
+    }
 
-  int server_sock = socket(server_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
-  if (server_sock < 0) {
-    perror("Can not open socket ");
-    if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
-    exit(EXIT_FAILURE);
-  }
-  if (bind(server_sock, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
-    perror("bind failed !");
-    if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
-    exit(EXIT_FAILURE);
-  }
-  int server_sock_tcp = 0;
-  if (config->enableTcp) {
-    server_sock_tcp = socket(server_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
-    if (server_sock_tcp < 0) {
+    if (s->addr.ss_family == AF_INET) {
+      std::cout << fmt::sprintf("listen at %s:%d\n", local.address, local.port);
+    } else {
+      std::cout << fmt::sprintf("listen at [%s]:%d\n", local.address, local.port);
+    }
+
+    s->socket = socket(s->addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+    if (s->socket < 0) {
       perror("Can not open socket ");
       if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
       exit(EXIT_FAILURE);
     }
-    if (bind(server_sock_tcp, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
+    if (bind(s->socket, (sockaddr *) &(s->addr), sizeof(s->addr)) == -1) {
       perror("bind failed !");
-      if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local_port);
+      if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local.port);
       exit(EXIT_FAILURE);
     }
-    if (listen(server_sock_tcp, 10) < 0) {
-      perror("listen failed !");
+    if (config->enableTcp) {
+      s->socket_tcp = socket(s->addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+      if (s->socket_tcp < 0) {
+        perror("Can not open socket ");
+        if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+        exit(EXIT_FAILURE);
+      }
+      if (bind(s->socket_tcp, (sockaddr *) &(s->addr), sizeof(s->addr)) == -1) {
+        perror("bind failed !");
+        if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local.port);
+        exit(EXIT_FAILURE);
+      }
+      if (listen(s->socket_tcp, 10) < 0) {
+        perror("listen failed !");
 
-      exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
+      }
+      tcp_server_set.emplace(s->socket_tcp);
     }
+    serverSockets.emplace_back(s);
+    udp_server_map[s->socket] = s;
   }
+
 
   bzero(&upserver_addr, sizeof(upserver_addr));
 
@@ -866,15 +872,19 @@ int main(int argc, char *argv[]) {
   struct epoll_event ev, events[100];
   int epollfd;
   epollfd = epoll_create1(EPOLL_CLOEXEC);
-  ev.events = EPOLLIN | EPOLLET;
-  ev.data.fd = server_sock;
-  epoll_ctl(epollfd, EPOLL_CTL_ADD, server_sock, &ev);
 
-  if (config->enableTcp) {
+  for (auto &serverSocket : serverSockets) {
     ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = server_sock_tcp;
-    epoll_ctl(epollfd, EPOLL_CTL_ADD, server_sock_tcp, &ev);
+    ev.data.fd = serverSocket->socket;
+    epoll_ctl(epollfd, EPOLL_CTL_ADD, serverSocket->socket, &ev);
+
+    if (config->enableTcp) {
+      ev.events = EPOLLIN | EPOLLET;
+      ev.data.fd = serverSocket->socket_tcp;
+      epoll_ctl(epollfd, EPOLL_CTL_ADD, serverSocket->socket_tcp, &ev);
+    }
   }
+
 
   ev.events = EPOLLIN | EPOLLET;
   ev.data.fd = upserver_sock;
@@ -943,14 +953,14 @@ int main(int argc, char *argv[]) {
   for (;;) {
     int nfds = epoll_wait(epollfd, events, 100, -1);
     for (int _n = 0; _n < nfds; ++_n) {
-      if (events[_n].data.fd == server_sock) {
-        readIncomeQuery(server_sock, buf, cliaddr, socklen, statistics);
+      if ( udp_server_map.count(events[_n].data.fd)) {
+        readIncomeQuery(events[_n].data.fd, buf, cliaddr, socklen, statistics);
       } else if (events[_n].data.fd == upserver_sock) {
-        readRemoteServerResponse(server_sock, buf);
+        readServerResponse(upserver_sock,buf);
       } else if (events[_n].data.fd == localnet_server_sock) {
-        readLocalServerResponse(server_sock, buf);
-      } else if (config->enableTcp and events[_n].data.fd == server_sock_tcp) {
-        acceptTcpIncome(server_sock_tcp, epollfd, cliaddr, socklen, ev);
+        readServerResponse(localnet_server_sock,buf);
+      } else if (config->enableTcp and tcp_server_set.count(events[_n].data.fd)) {
+        acceptTcpIncome(events[_n].data.fd, epollfd, cliaddr, socklen, ev);
       } else if (config->enableTcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
         readIncomeTcpQuery(epollfd, buf, events[_n], statistics);
       } else if (config->enableTcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
@@ -974,9 +984,13 @@ int main(int argc, char *argv[]) {
 
   end:
   if (bDaemon) closelog();
-  delete config;
+  boost::checked_delete(config);
   close(epollfd);
-  close(server_sock);
+  for (auto s : serverSockets) {
+    close(s->socket);
+    if (config->enableTcp) close(s->socket_tcp);
+    boost::checked_delete(s);
+  }
   close(upserver_sock);
   close(localnet_server_sock);
   std::cout << "EXIT_SUCCESS" << std::endl;

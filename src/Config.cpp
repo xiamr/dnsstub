@@ -15,7 +15,10 @@
 using json = nlohmann::json;
 
 void Config::trimAll() {
-  boost::trim(localAddress);
+  for (auto &local : locals){
+    boost::trim(local.address);
+  }
+
   boost::trim(suUsername);
   boost::trim(statisticsFile);
   boost::trim(polution);
@@ -46,8 +49,13 @@ Config* Config::load_xml_config(std::string filename) {
 
   const pugi::xml_node &root = doc.child("config");
 
-  config->localAddress = root.child("localAddress").text().as_string();
-  config->localPort = root.child("localPort").text().as_int(53);
+  //config->localAddress = root.child("localAddress").text().as_string();
+  //config->localPort = root.child("localPort").text().as_int(53);
+
+  for (auto &local : root.child("locals").children("local")){
+    config->locals.emplace_back(Local(local.attribute("address").value(), local.attribute("port").as_int(53)));
+  }
+
 
   const pugi::xml_node &su = root.child("su");
   if (!su.empty()) {
@@ -64,7 +72,7 @@ Config* Config::load_xml_config(std::string filename) {
 
   config->enableCache = root.child("enableCache").text().as_bool(false);
   config->enableTcp = root.child("enableTcp").text().as_bool(false);
-  config->ipv6First = root.child("ipv6First").text().as_bool(false);
+  config->ipv6First = static_cast<IPv6Mode >(root.child("ipv6First").text().as_int(1));
   config->gfwMode = root.child("gfwMode").text().as_bool(false);
   config->daemonMode = root.child("daemonMode").text().as_bool(false);
 
@@ -91,16 +99,26 @@ Config* Config::load_json_config(std::string filename) {
 
     auto config = new Config();
     try {
-      config->localAddress = j["localAddress"];
-      config->localPort = j["localPort"];
-
+      for (auto& local : j["locals"]){
+          config->locals.emplace_back(Local(local["address"],local["port"]));
+      }
       config->suUsername = j.value("su", "");
       config->statisticsFile = j.value("statisticsFile", "");
       config->polution = j.value("pollution", "");
 
       config->enableCache = j.value("enableCache", false);
       config->enableTcp = j.value("enableTcp", false);
-      config->ipv6First = j.value("ipv6First", false);
+      switch (j.value("ipv6First", 1)){
+        case 0: config->ipv6First = IPv6Mode::Off;
+          break;
+        case 1: config->ipv6First = IPv6Mode::OnlyForRemote;
+          break;
+        case 2: config->ipv6First = IPv6Mode::Full;
+          break;
+        default:
+          std::cerr << "err type number of ipv6First mode" << std::endl;
+          return nullptr;
+      }
       config->gfwMode = j.value("gfwMode", false);
       config->daemonMode = j.value("daemonMode", false);
 
@@ -123,3 +141,4 @@ Config* Config::load_json_config(std::string filename) {
   }
   return nullptr;
 }
+

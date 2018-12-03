@@ -98,7 +98,7 @@ std::string Global::parseArguments(int argc, char *argv[]) {
     exit(EXIT_SUCCESS);
   }
   if (!variablesMap.count("config")) {
-    std::cerr << "-config option is required" << std::endl;
+    std::cerr << "--config option is required" << std::endl;
     std::cerr << desc;
     exit(EXIT_FAILURE);
   }

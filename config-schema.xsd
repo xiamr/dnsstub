@@ -5,14 +5,19 @@
            elementFormDefault="qualified">
     <xs:element name="config">
         <xs:complexType>
-            <xs:element name="localAddress" type="xs:string"/>
-            <xs:element name="localPort" type="portType" default="53"/>
+            <xs:element name="locals">
+                 <xs:complexType>
+                     <xs:sequence minOccurs="1">
+                         <xs:element name="local" type="addressPair"/>
+                     </xs:sequence>
+                 </xs:complexType>
+            </xs:element>
             <xs:element name="su" type="xs:string" default=""   />
             <xs:element name="pollution" type="xs:string"/>
             <xs:element name="statisticsFile" type="xs:string" default=""/>
             <xs:element name="enableCache" type="xs:boolean" default="false"/>
             <xs:element name="enableTcp" type="xs:boolean" default="false"/>
-            <xs:element name="ipv6First" type="xs:boolean" default="false"/>
+            <xs:element name="ipv6First" type="xs:integer" default="0"/>
             <xs:element name="gfwMode" type="xs:boolean" default="false"/>
             <xs:element name="daemonMode" type="xs:boolean" default="false"/>
             <xs:element name="remote_server" type="addressPair"/>

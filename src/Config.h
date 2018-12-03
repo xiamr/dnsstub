@@ -11,14 +11,29 @@ class Config {
   Config() = default;
 
 public:
-  std::string localAddress;
-  uint16_t localPort;
+
+  enum class IPv6Mode {
+    Off = 0,
+    OnlyForRemote = 1,
+    Full = 2
+  };
+
+  struct Local {
+      std::string address;
+
+    Local(const std::string &address, uint16_t port) : address(address), port(port) {}
+
+    uint16_t port;
+
+  };
+
+  std::vector<struct Local> locals;
   std::string suUsername;
   std::string statisticsFile;
   std::string polution;
   bool enableCache;
   bool enableTcp;
-  bool ipv6First;
+  IPv6Mode ipv6First;
   bool gfwMode;
   bool daemonMode;
 
