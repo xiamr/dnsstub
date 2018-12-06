@@ -78,6 +78,8 @@ bool c_timeout = false;
 #define BUILD_SEC   ((BUILD_TIME_IS_BAD) ? 99 :  COMPUTE_BUILD_SEC)
 
 
+bool Global::debugMode = false;
+
 std::string Global::parseArguments(int argc, char *argv[]) {
 
   std::string config_filename;
@@ -86,7 +88,9 @@ std::string Global::parseArguments(int argc, char *argv[]) {
   desc.add_options()
       ("help,h", "show this help message")
       ("config,c", boost::program_options::value<std::string>(&config_filename)->required(),
-       "config file (json or xml format)");
+       "config file (json or xml format)")
+      ("debug,d",boost::program_options::value<bool>(&debugMode)->zero_tokens(),"debug severity mode");
+
   boost::program_options::positional_options_description p;
   p.add("config", 1);
   boost::program_options::variables_map variablesMap;
@@ -102,7 +106,6 @@ std::string Global::parseArguments(int argc, char *argv[]) {
     std::cerr << desc;
     exit(EXIT_FAILURE);
   }
-
 
   boost::program_options::notify(variablesMap);
   return config_filename;

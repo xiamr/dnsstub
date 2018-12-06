@@ -20,7 +20,6 @@
 #include <sys/timerfd.h>
 #include <unistd.h>
 #include <pwd.h>
-#include <syslog.h>
 #include <sstream>
 #include <signal.h>
 #include <sys/signalfd.h>
@@ -38,18 +37,24 @@
 #include <boost/program_options.hpp>
 #include <boost/checked_delete.hpp>
 
+#include <boost/date_time/posix_time/posix_time_types.hpp>
+#include <boost/log/core.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/log/expressions.hpp>
+#include <boost/log/utility/setup/console.hpp>
+#include <boost/log/sources/severity_logger.hpp>
+#include <boost/log/sources/record_ostream.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/support/date_time.hpp>
+
+
 #include "Config.h"
 #include "Global.h"
 #include "Dns.h"
 #include "DnsQueryStatistics.h"
 #include "Cache.h"
 
-
-#ifdef NDEBUG
-#define DEBUG(str)
-#else
-#define DEBUG(str) std::cout << str << std::endl;
-#endif
 
 const int max_udp_len = 65536;
 bool bDaemon = false;
@@ -65,12 +70,12 @@ struct SocketUnit {
 int setnonblocking(int fd) {
   int old_option = fcntl(fd, F_GETFL);
   if (old_option == -1) {
-    perror("get file destionptor flags failed");
+    BOOST_LOG_TRIVIAL(fatal) << "get file descriptor flags failed : " << strerror(errno);
     exit(EXIT_FAILURE);
   }
   int new_option = old_option | O_NONBLOCK;
   if (fcntl(fd, F_SETFL, new_option) == -1) {
-    perror("set nonblocking failed!");
+    BOOST_LOG_TRIVIAL(fatal) << "set nonblocking failed! " << strerror(errno);
     exit(EXIT_FAILURE);
   }
   return old_option;
@@ -131,17 +136,13 @@ std::unordered_map<int, SocketUnit *> udp_server_map;
 std::unordered_set<int> tcp_server_set;
 
 
-
 bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   if (upstream->dns1.questions.empty()) {
     boost::checked_delete(upstream);
     return false;
   }
   auto &q = upstream->dns1.questions[0];
-  std::string ostr = fmt::sprintf("%s  %s    %s\n", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type]);
-
-  std::cout << ostr;
-  if (bDaemon) syslog(LOG_INFO, "%s", ostr.c_str());
+  BOOST_LOG_TRIVIAL(info) << fmt::sprintf("%s  %s    %s", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type]);
 
   if (q.Type == Dns::A and (Config::IPv6Mode::Full == config->ipv6First or
                             (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
@@ -235,8 +236,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         try {
           n = dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          std::cerr << "Memory Access Error : " << err.what() << std::endl;
-          if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
+          BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
           boost::checked_delete(upstream);
           return nullptr;
         }
@@ -249,8 +249,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         try {
           n = upstream->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          std::cerr << "Memory Access Error : " << err.what() << std::endl;
-          if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
+          BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
           boost::checked_delete(upstream);
           return nullptr;
         }
@@ -262,16 +261,15 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           int upfd;
           upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
           if (upfd < 0) {
-            perror("Can not open socket ");
-            if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+            BOOST_LOG_TRIVIAL(fatal) << "Can not open socket for listenning...";
             exit(EXIT_FAILURE);
           }
-          struct epoll_event ev;
+          struct epoll_event ev{};
           ev.events = EPOLLET | EPOLLOUT | EPOLLRDHUP;
           ev.data.fd = upfd;
           int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
           if (ret < 0 and errno != EINPROGRESS) {
-            if (bDaemon) syslog(LOG_ERR, "connect failed %d : %s ", __LINE__, strerror(errno));
+            BOOST_LOG_TRIVIAL(error) << fmt::sprintf("connect failed %d : %s ", __LINE__, strerror(errno));
             return nullptr;
           }
           upstream->ser_fd = upfd;
@@ -280,14 +278,11 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           if (upstream->dns1.use_localnet_dns_server) {
             if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                        sizeof(localnet_server_addr)) < 0) {
-              std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
-              if (bDaemon)
-                syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
+              BOOST_LOG_TRIVIAL(warning) << fmt::sprintf("sendto up stream error %d : %s", __LINE__, strerror(errno));
             }
           } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
                      0) {
-            std::cerr << "send error : " << __LINE__ << strerror(errno) << std::endl;
-            if (bDaemon) syslog(LOG_WARNING, "sendto up stream error %d : %s", __LINE__, strerror(errno));
+            BOOST_LOG_TRIVIAL(warning) << fmt::sprintf("sendto up stream error %d : %s", __LINE__, strerror(errno));
           }
           id_map[upstream->dns1.id] = upstream;
           upstream->next = nullptr;
@@ -321,8 +316,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
         try {
           n = dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          std::cerr << "Memory Access Error : " << err.what() << std::endl;
-          if (bDaemon) syslog(LOG_ERR, "Memory Access Error %d : %s", __LINE__, err.what());
+          BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
           boost::checked_delete(upstream);
           return nullptr;
         }
@@ -382,12 +376,33 @@ void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr
   for (;;) {
     int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
     if (newcon < 0) {
-      if (errno != EAGAIN)
-        perror("accept error :");
-      if (bDaemon) syslog(LOG_WARNING, "accept error %d : %s", __LINE__, strerror(errno));
+      if (errno != EAGAIN or errno != EWOULDBLOCK)
+        BOOST_LOG_TRIVIAL(error) << fmt::sprintf("accept error %d : %s", __LINE__, strerror(errno));
       break;
     }
-    DEBUG("new tcp connection from client")
+
+    char remote_addr[128];
+    switch (cliaddr.ss_family) {
+      case AF_INET6: {
+        auto in6 = reinterpret_cast<struct sockaddr_in6 *>(&cliaddr);
+        if (inet_ntop(cliaddr.ss_family, &(in6->sin6_addr), remote_addr, 128)) {
+          BOOST_LOG_TRIVIAL(debug)
+            << fmt::sprintf("new tcp connection from client [%s]:%d ", remote_addr, in6->sin6_port);
+        }
+      }
+        break;
+      case AF_INET: {
+        auto in = reinterpret_cast<struct sockaddr_in *>(&cliaddr);
+        if (inet_ntop(cliaddr.ss_family, &(in->sin_addr), remote_addr, 128)) {
+          BOOST_LOG_TRIVIAL(debug) << fmt::sprintf("new tcp connection from client %s:%d ", remote_addr, in->sin_port);
+        }
+      }
+        break;
+      default:
+        BOOST_LOG_TRIVIAL(error) << "unexcepted ss_family " << cliaddr.ss_family;
+    }
+
+
     // Accept new connnection from client
     ev.events = EPOLLET | EPOLLIN | EPOLLERR;
     ev.data.fd = newcon;
@@ -403,12 +418,12 @@ void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr
 void readServerResponse(int server_sock, char *buf) {
   ssize_t n;
   while ((n = recv(server_sock, buf, max_udp_len, 0)) > 0) {
-    DEBUG("recv udp response from dns server")
+    BOOST_LOG_TRIVIAL(debug) << "recv udp response from dns server";
     auto upstream = check(buf, n, false);
     if (upstream == nullptr) continue;
 
     *(uint16_t *) buf = htons(upstream->cli_id);
-    DEBUG("send udp response to client")
+    BOOST_LOG_TRIVIAL(debug) << "send udp response to client";
     sendto(upstream->s->socket, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
     boost::checked_delete(upstream);
@@ -421,16 +436,15 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
                      DnsQueryStatistics &statistics) {
   ssize_t n;
   while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
-    DEBUG("new udp request from client")
+    BOOST_LOG_TRIVIAL(debug) << "new udp request from client";
 
     auto up = new Upstream;
     try {
       up->dns1.from_wire(buf, n);
     } catch (out_of_bound &err) {
-      std::cerr << "Memory Access Error : " << err.what() << std::endl;
-      if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-    } catch (BadDnsError) {
-      std::cerr << "Bad Dns " << std::endl;
+      BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
+    } catch (BadDnsError &err) {
+      BOOST_LOG_TRIVIAL(warning) << "Bad Dns " << err.what();
     }
     if (up->dns1.questions.empty()) {
       boost::checked_delete(up);
@@ -457,10 +471,9 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       try {
         n = response->to_wire(buf, max_udp_len);
       } catch (out_of_bound &err) {
-        std::cerr << "Memory Access Error : " << err.what() << std::endl;
-        if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+        BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
       }
-      DEBUG("send response to client from cache")
+      BOOST_LOG_TRIVIAL(debug) << "send response to client from cache";
       sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
       boost::checked_delete(response);
       boost::checked_delete(up);
@@ -475,26 +488,23 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         try {
           n = up->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
-          std::cerr << "Memory Access Error : " << err.what() << std::endl;
-          if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+          BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
           boost::checked_delete(up);
           continue;
         }
       } else {
         *(uint16_t *) buf = htons(up->up_id);
       }
-      DEBUG("send udp request to server")
+      BOOST_LOG_TRIVIAL(debug) << "send udp request to server";
       if (up->dns1.use_localnet_dns_server) {
         if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                    sizeof(localnet_server_addr)) <
             0) {
-          std::cerr << "send error : " << __LINE__ << std::endl;
-          if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
+          BOOST_LOG_TRIVIAL(warning) << "send error : " << __LINE__ << std::endl;
         }
       } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
                         sizeof(upserver_addr)) < 0) {
-        std::cerr << "send error  : " << __LINE__ << std::endl;
-        if (bDaemon) syslog(LOG_WARNING, "sendto up stream error ");
+        BOOST_LOG_TRIVIAL(warning) << "send error : " << __LINE__ << std::endl;
       }
     }
   }
@@ -505,16 +515,15 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
   ssize_t n;
   auto up = client_tcp_con[event.data.fd];
   if (event.events & EPOLLIN) {
-    DEBUG("tcp request data from client")
+    BOOST_LOG_TRIVIAL(debug) << "tcp request data from client";
     read_buf(event.data.fd, buf, up);
     if (up->data_len == up->buf_len != 0) {
       try {
         up->dns1.from_wire(up->buf, up->buf_len);
       } catch (out_of_bound &err) {
-        std::cerr << "Memory Access Error : " << err.what() << std::endl;
-        if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
-      } catch (BadDnsError) {
-        std::cerr << "Bad Dns " << std::endl;
+        BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
+      } catch (BadDnsError &err) {
+        BOOST_LOG_TRIVIAL(warning) << "Bad Dns " << err.what();
       }
       if (up->dns1.questions.empty()) {
         boost::checked_delete(up);
@@ -544,11 +553,10 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         try {
           n = response->to_wire(buf + 2, max_udp_len - 2);
         } catch (out_of_bound &err) {
-          std::cerr << "Memory Access Error : " << err.what() << std::endl;
-          if (bDaemon) syslog(LOG_ERR, "Memory Access Error : %s", err.what());
+          BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
         }
         *(uint16_t *) buf = htons(n);
-        DEBUG("send tcp response to client from cache")
+        BOOST_LOG_TRIVIAL(debug) << "send tcp response to client from cache";
         write(up->cli_fd, buf, n + 2);
         close(up->cli_fd);
         client_tcp_con.erase(up->cli_fd);
@@ -566,31 +574,31 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
           upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
         }
         if (upfd < 0) {
-          perror("Can not open socket ");
-          exit(2);
+          BOOST_LOG_TRIVIAL(error) << "Can not open socket :" << strerror(errno);
+          return;
         }
-        struct epoll_event ev;
+        struct epoll_event ev{};
         ev.events = EPOLLET | EPOLLOUT | EPOLLERR;
         ev.data.fd = upfd;
         epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
-        DEBUG("new tcp connnect to server")
+        BOOST_LOG_TRIVIAL(debug) << "new tcp connnect to server";
         int ret;
         if (up->dns1.use_localnet_dns_server) {
           ret = connect(upfd, (sockaddr *) &localnet_server_addr, sizeof(localnet_server_addr));
-          DEBUG("Tcp connect to localnet dns server ...")
+          BOOST_LOG_TRIVIAL(debug) << "Tcp connect to localnet dns server ...";
         } else {
           ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
-          DEBUG("Tcp connect to remote dns server ...")
+          BOOST_LOG_TRIVIAL(debug) << "Tcp connect to remote dns server ...";
         }
         if (ret < 0 and errno != EINPROGRESS) {
-          syslog(LOG_ERR, "connect to up server error %d : %s", __LINE__, strerror(errno));
+          BOOST_LOG_TRIVIAL(warning) << fmt::sprintf("connect to up server error %d : %s", __LINE__, strerror(errno));
         }
         up->ser_fd = upfd;
         server_tcp_con[upfd] = up;
       }
     }
   } else if (event.events & EPOLLERR) {
-    DEBUG("tcp connection errror. close it")
+    BOOST_LOG_TRIVIAL(debug) << "tcp connection errror. close it";
     close(event.data.fd);
     epoll_ctl(epollfd, EPOLL_CTL_DEL, event.data.fd, nullptr);
     boost::checked_delete(up);
@@ -605,17 +613,17 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
   auto *up = server_tcp_con[upfd];
   if (event.events & EPOLLOUT) {
     // Connect succeed!
-    DEBUG("tcp connection established")
+    BOOST_LOG_TRIVIAL(debug) << "tcp connection established";
 
     n = up->dns1.to_wire(buf + 2, max_udp_len - 2);
     *(uint16_t *) buf = htons(n);
-    DEBUG("send tcp request to server")
+    BOOST_LOG_TRIVIAL(debug) << "send tcp request to server";
     ssize_t siz = write(upfd, buf, n + 2);
     if (siz != n + 2) {
       perror("up write ");
       return;
     }
-    struct epoll_event ev;
+    struct epoll_event ev{};
     ev.events = EPOLLET | EPOLLIN | EPOLLERR;
     ev.data.fd = upfd;
     epoll_ctl(epollfd, EPOLL_CTL_MOD, upfd, &ev);
@@ -626,7 +634,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
   } else if (event.events & EPOLLIN) {
     read_buf(upfd, buf, up);
     if (up->data_len == up->buf_len and up->buf_len != 0) {
-      DEBUG("recv tcp response from server")
+      BOOST_LOG_TRIVIAL(debug) << "recv tcp response from server";
       memcpy(buf + 2, up->buf, up->data_len);
 
       auto upstream = check(buf + 2, up->data_len, true);
@@ -634,7 +642,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
         return;
       *(uint16_t *) buf = htons(up->data_len);
       *(uint16_t *) (buf + 2) = htons(upstream->cli_id);
-      DEBUG("send tcp response to client")
+      BOOST_LOG_TRIVIAL(debug) << "send tcp response to client";
       write(upstream->cli_fd, buf, up->data_len + 2);
       close(upstream->cli_fd);
       close(upstream->ser_fd);
@@ -647,7 +655,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
       upstream = nullptr;
     }
   } else if (event.events & EPOLLERR) {
-    DEBUG("tcp connection error. close ...")
+    BOOST_LOG_TRIVIAL(debug) << "tcp connection error. close ...";
     close(up->cli_fd);
     close(up->ser_fd);
     client_tcp_con.erase(up->cli_fd);
@@ -677,29 +685,29 @@ bool signalHandler(int sfd, DnsQueryStatistics &statistics) {
     }
     switch (signalfdSiginfo.ssi_signo) {
       case SIGUSR1:
-        std::cout << "reloading config file <pollution_domains.config> ..." << std::endl;
-        Dns::load_polluted_domains("pollution_domains.config");
-        std::cout << "reload complete !" << std::endl;
+        BOOST_LOG_TRIVIAL(info) << "reloading config file  ... " << config->polution;
+        Dns::load_polluted_domains(config->polution);
+        BOOST_LOG_TRIVIAL(info) << "reload complete !";
         break;
       case SIGUSR2:
         statistics.printStatisticsInfos();
         break;
       case SIGTERM:
       case SIGINT:
-        if (bDaemon) syslog(LOG_INFO, "exit normally");
+        BOOST_LOG_TRIVIAL(info) << "exit normally";
         statistics.printStatisticsInfos();
         return true;
         break;
       default:
-        std::cerr << "unexcepted signal (" << signalfdSiginfo.ssi_signo << ") " << std::endl;
+        BOOST_LOG_TRIVIAL(warning) << "unexcepted signal (" << signalfdSiginfo.ssi_signo << ") ";
     }
   }
   return false;
 }
 
 void reqMessageTimeoutHandler() {
-  DEBUG("request data structure time out")
-  struct timespec now;
+  BOOST_LOG_TRIVIAL(debug) << "request data structure time out";
+  struct timespec now{};
   clock_gettime(CLOCK_MONOTONIC, &now);
   while (oldest_up) {
     if (oldest_up->time.tv_sec + 60 < now.tv_sec) {
@@ -731,10 +739,30 @@ void reqMessageTimeoutHandler() {
   }
 }
 
+BOOST_LOG_ATTRIBUTE_KEYWORD(log_timestamp, "TimeStamp", boost::posix_time::ptime)
+
+void boost_log_init(Config *config) {
+  boost::log::add_common_attributes();
+
+// setup console log
+  boost::log::add_console_log(
+      std::clog,
+      boost::log::keywords::filter = boost::log::trivial::severity >= config->current_severity,
+      boost::log::keywords::format = (
+          boost::log::expressions::stream
+              << boost::log::expressions::format_date_time(log_timestamp, "%Y-%m-%d %H:%M:%S")
+              << " ["
+              << boost::log::trivial::severity
+              << "] "
+              << boost::log::expressions::smessage
+      )
+  );
+}
 
 int main(int argc, char *argv[]) {
 
   Global::printVersionInfos();
+
 
   const char *remote_address = nullptr;
   const char *localnet_server_address = nullptr;
@@ -742,7 +770,13 @@ int main(int argc, char *argv[]) {
   std::string config_filename = Global::parseArguments(argc, argv);
 
   config = Config::load_config_file(config_filename);
+  if (!config){
+    std::cerr << "Error load config file" << std::endl;
+    exit(EXIT_FAILURE);
+  }
 
+  if (Global::debugMode) config->current_severity = boost::log::trivial::debug;
+  boost_log_init(config);
 
   remote_address = config->remote_server_address.c_str();
   localnet_server_address = config->localnet_server_address.c_str();
@@ -752,61 +786,54 @@ int main(int argc, char *argv[]) {
   Dns::load_polluted_domains(config->polution);
 
 
-  std::cout << "Start Server ..." << std::endl;
-  if (bDaemon) {
-    std::cout << "Enter daemon mode .." << std::endl;
-    std::cout << "Open syslog facility .. " << std::endl;
-    daemon(0, 0);
-    openlog(argv[0], LOG_PID, LOG_USER);
-  }
+  BOOST_LOG_TRIVIAL(info) << "Start Server ...";
 
+  if (bDaemon) {
+    BOOST_LOG_TRIVIAL(info) << "Enter daemon mode ..";
+    daemon(0, 0);
+  }
 
 
   for (auto &local : config->locals) {
     auto s = new SocketUnit;
-    if (inet_pton(AF_INET6, local.address.c_str(), &((sockaddr_in *) &(s->addr))->sin_addr)) {
+    if (inet_pton(AF_INET6, local.address.c_str(), &((sockaddr_in6 *) &(s->addr))->sin6_addr)) {
       s->addr.ss_family = AF_INET6;
       ((sockaddr_in6 *) &(s->addr))->sin6_port = htons(local.port);
     } else if (inet_pton(AF_INET, local.address.c_str(), &((sockaddr_in *) &(s->addr))->sin_addr)) {
       s->addr.ss_family = AF_INET;
       ((sockaddr_in *) &(s->addr))->sin_port = htons(local.port);
     } else {
-      std::cerr << "Local addresss is invaild" << std::endl;
+      BOOST_LOG_TRIVIAL(fatal) << "Local addresss is invaild : " << local.address;
       exit(EXIT_FAILURE);
     }
 
     if (s->addr.ss_family == AF_INET) {
-      std::cout << fmt::sprintf("listen at %s:%d\n", local.address, local.port);
+      BOOST_LOG_TRIVIAL(info) << fmt::sprintf("listen at %s:%d", local.address, local.port);
     } else {
-      std::cout << fmt::sprintf("listen at [%s]:%d\n", local.address, local.port);
+      BOOST_LOG_TRIVIAL(info) << fmt::sprintf("listen at [%s]:%d", local.address, local.port);
     }
 
     s->socket = socket(s->addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
     if (s->socket < 0) {
-      perror("Can not open socket ");
-      if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+      BOOST_LOG_TRIVIAL(fatal) << "Can not open socket for listening...  " << strerror(errno);
       exit(EXIT_FAILURE);
     }
     if (bind(s->socket, (sockaddr *) &(s->addr), sizeof(s->addr)) == -1) {
-      perror("bind failed !");
-      if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local.port);
+      BOOST_LOG_TRIVIAL(fatal) << fmt::sprintf("Can not bind port(%d) for listening", local.port);
       exit(EXIT_FAILURE);
     }
     if (config->enableTcp) {
       s->socket_tcp = socket(s->addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
       if (s->socket_tcp < 0) {
-        perror("Can not open socket ");
-        if (bDaemon) syslog(LOG_ERR, "Can not open socket for listenning..");
+        BOOST_LOG_TRIVIAL(fatal) << "Can not open socket for listening...  " << strerror(errno);
         exit(EXIT_FAILURE);
       }
       if (bind(s->socket_tcp, (sockaddr *) &(s->addr), sizeof(s->addr)) == -1) {
-        perror("bind failed !");
-        if (bDaemon) syslog(LOG_ERR, "Can not bind port(%d) for listening", local.port);
+        BOOST_LOG_TRIVIAL(fatal) << fmt::sprintf("Can not bind port(%d) for listening", local.port);
         exit(EXIT_FAILURE);
       }
       if (listen(s->socket_tcp, 10) < 0) {
-        perror("listen failed !");
-
+        BOOST_LOG_TRIVIAL(fatal) << "listen failed ! " << strerror(errno);
         exit(EXIT_FAILURE);
       }
       tcp_server_set.emplace(s->socket_tcp);
@@ -825,34 +852,32 @@ int main(int argc, char *argv[]) {
     upserver_addr.ss_family = AF_INET;
     ((sockaddr_in *) &upserver_addr)->sin_port = htons(config->remote_server_port);
   } else {
-    std::cerr << "Remote addresss is invaild" << std::endl;
-    if (bDaemon) syslog(LOG_ERR, "Remote addresss(%s) is invaild", remote_address);
+    BOOST_LOG_TRIVIAL(fatal) << fmt::sprintf("Remote addresss(%s) is invaild", remote_address);
     exit(EXIT_FAILURE);
   }
   upserver_sock = socket(upserver_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
   if (upserver_sock < 0) {
-    perror("Can not open socket ");
-    if (bDaemon) syslog(LOG_ERR, "Can not open socket remote up stream server communication");
+    BOOST_LOG_TRIVIAL(fatal) << "Can not open socket remote up stream " << strerror(errno);
     exit(EXIT_FAILURE);
   }
 
   bzero(&localnet_server_addr, sizeof(localnet_server_addr));
 
-  if (inet_pton(AF_INET6, localnet_server_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
+  if (inet_pton(AF_INET6, localnet_server_address, &((sockaddr_in6 *) &localnet_server_addr)->sin6_addr)) {
     localnet_server_addr.ss_family = AF_INET6;
     ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(config->localnet_server_port);
   } else if (inet_pton(AF_INET, localnet_server_address, &((sockaddr_in *) &localnet_server_addr)->sin_addr)) {
     localnet_server_addr.ss_family = AF_INET;
     ((sockaddr_in *) &localnet_server_addr)->sin_port = htons(config->localnet_server_port);
   } else {
-    std::cerr << "local net dns server address resolve error" << std::endl;
+    BOOST_LOG_TRIVIAL(fatal) << "local net dns server address resolve error :" << localnet_server_address;
     exit(EXIT_FAILURE);
   }
 
   localnet_server_sock = socket(localnet_server_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
 
   if (localnet_server_sock < 0) {
-    perror("Can not open socket for localnet dns server");
+    BOOST_LOG_TRIVIAL(fatal) << "Can not open socket for localnet dns server :" << strerror(errno);
     exit(EXIT_FAILURE);
   }
 
@@ -869,7 +894,7 @@ int main(int argc, char *argv[]) {
   char buf[max_udp_len];
   ssize_t n;
 
-  struct epoll_event ev, events[100];
+  struct epoll_event ev{}, events[100];
   int epollfd;
   epollfd = epoll_create1(EPOLL_CLOEXEC);
 
@@ -896,7 +921,7 @@ int main(int argc, char *argv[]) {
 
   tfd = timerfd_create(CLOCK_MONOTONIC, 0);
   if (tfd == -1) {
-    perror("tfd ");
+    BOOST_LOG_TRIVIAL(fatal) << "tfd  : " << strerror(errno);
     return EXIT_FAILURE;
   }
   ev.events = EPOLLIN | EPOLLET;
@@ -926,18 +951,14 @@ int main(int argc, char *argv[]) {
   // signal of print statistics infomation
   sigaddset(&mask, SIGUSR2);
 
-  if (sigprocmask(SIG_BLOCK, &mask, NULL) == -1) {
-    std::string ostr = fmt::sprintf("sigprocmask %s\n", strerror(errno));
-    std::cerr << ostr;
-    if (bDaemon) syslog(LOG_ERR, "%s", ostr.c_str());
-    //exit(EXIT_FAILURE);
+  if (sigprocmask(SIG_BLOCK, &mask, nullptr) == -1) {
+    BOOST_LOG_TRIVIAL(fatal) << "sigprocmask " << strerror(errno);
+    exit(EXIT_FAILURE);
   }
   int sfd = signalfd(-1, &mask, SFD_NONBLOCK);
   if (sfd == -1) {
-    std::string ostr = fmt::sprintf("signalfd %s\n", strerror(errno));
-    std::cerr << ostr;
-    if (bDaemon) syslog(LOG_ERR, "%s", ostr.c_str());
-    //exit(EXIT_FAILURE);
+    BOOST_LOG_TRIVIAL(fatal) << "signalfd " << strerror(errno);
+    exit(EXIT_FAILURE);
   }
   ev.events = EPOLLIN | EPOLLET;
   ev.data.fd = sfd;
@@ -953,12 +974,12 @@ int main(int argc, char *argv[]) {
   for (;;) {
     int nfds = epoll_wait(epollfd, events, 100, -1);
     for (int _n = 0; _n < nfds; ++_n) {
-      if ( udp_server_map.count(events[_n].data.fd)) {
+      if (udp_server_map.count(events[_n].data.fd)) {
         readIncomeQuery(events[_n].data.fd, buf, cliaddr, socklen, statistics);
       } else if (events[_n].data.fd == upserver_sock) {
-        readServerResponse(upserver_sock,buf);
+        readServerResponse(upserver_sock, buf);
       } else if (events[_n].data.fd == localnet_server_sock) {
-        readServerResponse(localnet_server_sock,buf);
+        readServerResponse(localnet_server_sock, buf);
       } else if (config->enableTcp and tcp_server_set.count(events[_n].data.fd)) {
         acceptTcpIncome(events[_n].data.fd, epollfd, cliaddr, socklen, ev);
       } else if (config->enableTcp and client_tcp_con.find(events[_n].data.fd) != client_tcp_con.end()) {
@@ -966,9 +987,8 @@ int main(int argc, char *argv[]) {
       } else if (config->enableTcp and server_tcp_con.find(events[_n].data.fd) != server_tcp_con.end()) {
         HandleServerSideTcp(epollfd, buf, events[_n]);
       } else if (config->enableCache and events[_n].data.fd == cache_tfd) {
-        DEBUG("cache time out")
+        BOOST_LOG_TRIVIAL(debug) << "cache time out";
         cache.timeout();
-
       } else if (events[_n].data.fd == tfd) {
         reqMessageTimeoutHandler();
       } else if (events[_n].data.fd == sfd) {
@@ -983,7 +1003,6 @@ int main(int argc, char *argv[]) {
   }
 
   end:
-  if (bDaemon) closelog();
   boost::checked_delete(config);
   close(epollfd);
   for (auto s : serverSockets) {
@@ -993,7 +1012,6 @@ int main(int argc, char *argv[]) {
   }
   close(upserver_sock);
   close(localnet_server_sock);
-  std::cout << "EXIT_SUCCESS" << std::endl;
   return EXIT_SUCCESS;
 }
 

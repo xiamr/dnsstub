@@ -6,6 +6,8 @@
 #define DNSSTUB_CONFIG_H
 
 #include <string>
+#include <boost/log/trivial.hpp>
+#include <boost/bimap.hpp>
 
 class Config {
   Config() = default;
@@ -43,6 +45,8 @@ public:
   std::string localnet_server_address;
   uint16_t localnet_server_port;
 
+  boost::log::trivial::severity_level current_severity;
+
 
   /**
    * factory method to new an instance
@@ -56,6 +60,7 @@ private:
   static Config* load_json_config(std::string filename);
   void trimAll();
 
+  static std::unordered_map<std::string, boost::log::trivial::severity_level> severity_level_map;
 };
 
 

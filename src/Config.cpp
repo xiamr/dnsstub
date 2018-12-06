@@ -14,8 +14,17 @@
 
 using json = nlohmann::json;
 
+std::unordered_map<std::string, boost::log::trivial::severity_level> Config::severity_level_map = {
+    {boost::log::trivial::to_string(boost::log::trivial::trace),   boost::log::trivial::trace},
+    {boost::log::trivial::to_string(boost::log::trivial::debug),   boost::log::trivial::debug},
+    {boost::log::trivial::to_string(boost::log::trivial::info),    boost::log::trivial::info},
+    {boost::log::trivial::to_string(boost::log::trivial::warning), boost::log::trivial::warning},
+    {boost::log::trivial::to_string(boost::log::trivial::error),   boost::log::trivial::error},
+    {boost::log::trivial::to_string(boost::log::trivial::fatal),   boost::log::trivial::fatal}
+};
+
 void Config::trimAll() {
-  for (auto &local : locals){
+  for (auto &local : locals) {
     boost::trim(local.address);
   }
 
@@ -26,7 +35,7 @@ void Config::trimAll() {
   boost::trim(localnet_server_address);
 }
 
-Config* Config::load_config_file(const std::string &config_filename) {
+Config *Config::load_config_file(const std::string &config_filename) {
   Config *config = nullptr;
   if (regex_match(config_filename, std::regex(R"(.+\.json$)"))) {
     config = load_json_config(config_filename);
@@ -39,7 +48,7 @@ Config* Config::load_config_file(const std::string &config_filename) {
   return config;
 }
 
-Config* Config::load_xml_config(std::string filename) {
+Config *Config::load_xml_config(std::string filename) {
   pugi::xml_document doc;
   pugi::xml_parse_result result = doc.load_file(filename.c_str());
 
@@ -52,7 +61,7 @@ Config* Config::load_xml_config(std::string filename) {
   //config->localAddress = root.child("localAddress").text().as_string();
   //config->localPort = root.child("localPort").text().as_int(53);
 
-  for (auto &local : root.child("locals").children("local")){
+  for (auto &local : root.child("locals").children("local")) {
     config->locals.emplace_back(Local(local.attribute("address").value(), local.attribute("port").as_int(53)));
   }
 
@@ -76,6 +85,16 @@ Config* Config::load_xml_config(std::string filename) {
   config->gfwMode = root.child("gfwMode").text().as_bool(false);
   config->daemonMode = root.child("daemonMode").text().as_bool(false);
 
+  std::string severity = root.child("severity").text().as_string("info");
+  auto node_iterator = severity_level_map.find(severity);
+  if (node_iterator == severity_level_map.end()) {
+    std::cerr << "error severity level : " << severity << std::endl;
+    exit(EXIT_FAILURE);
+  } else {
+    config->current_severity = node_iterator->second;
+  }
+
+
   const pugi::xml_node &remote = root.child("remote_server");
   config->remote_server_address = remote.attribute("address").value();
   config->remote_server_port = remote.attribute("port").as_int(53);
@@ -90,7 +109,7 @@ Config* Config::load_xml_config(std::string filename) {
 
 }
 
-Config* Config::load_json_config(std::string filename) {
+Config *Config::load_json_config(std::string filename) {
   std::ifstream ifs;
   ifs.open(filename);
   if (!ifs.fail()) {
@@ -99,8 +118,8 @@ Config* Config::load_json_config(std::string filename) {
 
     auto config = new Config();
     try {
-      for (auto& local : j["locals"]){
-          config->locals.emplace_back(Local(local["address"],local["port"]));
+      for (auto &local : j["locals"]) {
+        config->locals.emplace_back(Local(local["address"], local["port"]));
       }
       config->suUsername = j.value("su", "");
       config->statisticsFile = j.value("statisticsFile", "");
@@ -108,12 +127,15 @@ Config* Config::load_json_config(std::string filename) {
 
       config->enableCache = j.value("enableCache", false);
       config->enableTcp = j.value("enableTcp", false);
-      switch (j.value("ipv6First", 1)){
-        case 0: config->ipv6First = IPv6Mode::Off;
+      switch (j.value("ipv6First", 1)) {
+        case 0:
+          config->ipv6First = IPv6Mode::Off;
           break;
-        case 1: config->ipv6First = IPv6Mode::OnlyForRemote;
+        case 1:
+          config->ipv6First = IPv6Mode::OnlyForRemote;
           break;
-        case 2: config->ipv6First = IPv6Mode::Full;
+        case 2:
+          config->ipv6First = IPv6Mode::Full;
           break;
         default:
           std::cerr << "err type number of ipv6First mode" << std::endl;
@@ -122,6 +144,15 @@ Config* Config::load_json_config(std::string filename) {
       config->gfwMode = j.value("gfwMode", false);
       config->daemonMode = j.value("daemonMode", false);
 
+      std::string severity = j.value("severity", "info");
+
+      auto node_iterator = severity_level_map.find(severity);
+      if (node_iterator == severity_level_map.end()) {
+        std::cerr << "error severity level : " << severity << std::endl;
+        exit(EXIT_FAILURE);
+      } else {
+        config->current_severity = node_iterator->second;
+      }
 
       const json &remote = j["remote_server"];
       config->remote_server_address = remote.value("address", "8.8.8.8");
@@ -141,4 +172,3 @@ Config* Config::load_json_config(std::string filename) {
   }
   return nullptr;
 }
-

@@ -16,6 +16,8 @@ public:
   static std::string parseArguments(int argc, char *argv[]);
   static void printVersionInfos();
 
+  static bool debugMode;
+
 };
 
 

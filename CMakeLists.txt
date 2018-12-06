@@ -6,6 +6,10 @@ set(DNSSTUB_AUTHOR "MiaoRen Xia")
 
 set(CMAKE_CXX_STANDARD 14)
 
+if (${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb3 ${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
+
 
 string(REPLACE ":" ";" LIBRARY_DIRS $ENV{LIBRARY_PATH})
 string(REPLACE ":" ";" CPATH_DIRS $ENV{CPATH})
@@ -26,11 +30,11 @@ link_libraries(rt)
 # Boost
 set(BOOST_INCLUDEDIR ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
 set(BOOST_LIBRARYDIR ${LIBRARY_DIRS})
-find_package(Boost 1.67 REQUIRED COMPONENTS program_options log log_setup)
+find_package(Boost 1.67 REQUIRED COMPONENTS program_options log log_setup container)
 include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES})
 
-add_definitions( "-DBOOST_LOG_DYN_LINK")
+add_definitions("-DBOOST_LOG_DYN_LINK")
 
 # pugixml
 find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})

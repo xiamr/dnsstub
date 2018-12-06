@@ -12,7 +12,7 @@
                      </xs:sequence>
                  </xs:complexType>
             </xs:element>
-            <xs:element name="su" type="xs:string" default=""   />
+            <xs:element name="su" type="xs:string" default=""/>
             <xs:element name="pollution" type="xs:string"/>
             <xs:element name="statisticsFile" type="xs:string" default=""/>
             <xs:element name="enableCache" type="xs:boolean" default="false"/>
@@ -20,6 +20,7 @@
             <xs:element name="ipv6First" type="xs:integer" default="0"/>
             <xs:element name="gfwMode" type="xs:boolean" default="false"/>
             <xs:element name="daemonMode" type="xs:boolean" default="false"/>
+            <xs:element name="severity" type="severity_level" default="info"/>
             <xs:element name="remote_server" type="addressPair"/>
             <xs:element name="localnet_server" type="addressPair"/>
           </xs:complexType>
@@ -31,8 +32,20 @@
             <xs:maxExclusive value="65536"/>
         </xs:restriction>
     </xs:simpleType>
+
     <xs:complexType name="addressPair">
         <xs:attribute name="address" type="xs:string" use="required"/>
         <xs:attribute name="port" type="portType" use="optional" default="53"/>
     </xs:complexType>
+
+    <xs:simpleType name="severity_level">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="trace" />
+            <xs:enumeration value="debug" />
+            <xs:enumeration value="info" />
+            <xs:enumeration value="warning" />
+            <xs:enumeration value="error" />
+            <xs:enumeration value="fatal" />
+        </xs:restriction>
+    </xs:simpleType>
 </xs:schema>
