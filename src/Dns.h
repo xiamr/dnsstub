@@ -43,11 +43,11 @@ public:
 class Dns {
 
 public:
-  static std::unordered_set<std::__cxx11::string> polluted_domains;
+  static std::unordered_set<std::string> polluted_domains;
 
-  static bool isDomainValid(const std::__cxx11::string &domain);
+  static bool isDomainValid(const std::string &domain);
 
-  static void load_polluted_domains(const std::__cxx11::string &config_filename);
+  static void load_polluted_domains(const std::string &config_filename);
 
   enum Sign : uint16_t {
     QR = 1 << 15,
@@ -66,17 +66,17 @@ public:
     AAAA = 28, SRV = 33, NAPTR = 35, OPT = 41, IXPT = 251, AXFR = 252, ANY = 255
   };
 
-  static std::unordered_map<enum QType, std::__cxx11::string> QType2Name;
+  static std::unordered_map<enum QType, std::string> QType2Name;
 
   enum QClass : uint16_t {
     IN = 1, NOCLASS = 254, ALL = 255
   };
 
-  static std::unordered_map<enum QClass, std::__cxx11::string> QClass2Name;
+  static std::unordered_map<enum QClass, std::string> QClass2Name;
 
   class Question {
   public:
-    std::__cxx11::string name;
+    std::string name;
     enum QType Type;
     enum QClass Class;
 
@@ -87,11 +87,11 @@ public:
 
   class Answer {
   public:
-    std::__cxx11::string name;
+    std::string name;
     enum QType Type;
     enum QClass Class;
     unsigned int TTL;
-    std::__cxx11::string rdata;
+    std::string rdata;
 
   };
 
@@ -143,8 +143,8 @@ public:
 
   std::__cxx11::string getName(char *&ptr, char *buf, const char *upbound);
 
-  char *toName(std::__cxx11::string &name, char *ptr, const char *buf, const char *upbound,
-               std::unordered_map<std::__cxx11::string, uint16_t> &str_map);
+  char *toName(std::string &name, char *ptr, const char *buf, const char *upbound,
+               std::unordered_map<std::string, uint16_t> &str_map);
 
   unsigned short id{};
   unsigned short signs{};

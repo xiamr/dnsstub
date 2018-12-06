@@ -26,14 +26,14 @@ public:
 
   class Item {
   public:
-    std::__cxx11::string name;
+    std::string name;
     std::unordered_set<Relation *> parent_relations;
     std::unordered_set<Relation *> child_relations;
   };
 
   void construct(Dns &dns);
 
-  Item *getItem(const std::__cxx11::string &name);
+  Item *getItem(const std::string &name);
 
 
   virtual ~Cache();
@@ -44,9 +44,9 @@ public:
     this->timer_fd = timer_fd;
   }
 
-  std::unordered_set<std::__cxx11::string> noipv6_domain;
+  std::unordered_set<std::string> noipv6_domain;
 private:
-  std::unordered_map<std::__cxx11::string, Item *> item_hash;
+  std::unordered_map<std::string, Item *> item_hash;
 
   std::vector<Relation *> sorted_heap;
   int timer_fd;

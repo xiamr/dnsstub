@@ -27,7 +27,6 @@
 #include "Cache.h"
 
 
-
 Cache::~Cache() {
   for (auto r : sorted_heap) {
     delete r;

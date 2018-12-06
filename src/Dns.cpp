@@ -409,12 +409,12 @@ Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
 }
 
 // read the config file that contains the polluted domains
-void Dns::load_polluted_domains(const std::__cxx11::string &config_filename) {
+void Dns::load_polluted_domains(const std::string &config_filename) {
   polluted_domains.clear();
   std::ifstream fs;
   fs.open(config_filename);
   if (fs) {
-    std::__cxx11::string line;
+    std::string line;
     while (!fs.eof()) {
       getline(fs, line);
       boost::algorithm::trim(line);
@@ -430,8 +430,8 @@ void Dns::load_polluted_domains(const std::__cxx11::string &config_filename) {
   std::cerr << "pollution file (" << config_filename << ") was not opened !" << std::endl;
 }
 
-bool Dns::isDomainValid(const std::__cxx11::string &domain) {
-  static auto validDomainPattern = std::__cxx11::regex(
+bool Dns::isDomainValid(const std::string &domain) {
+  static auto validDomainPattern = std::regex(
       R"(^([a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})*\.$|\.))");
   return regex_match(domain, validDomainPattern);
 }

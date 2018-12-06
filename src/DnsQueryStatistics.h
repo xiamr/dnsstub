@@ -35,7 +35,7 @@ class DnsQueryStatistics {
   std::unordered_map<Dns::Question, long, KeyHasher> _statistics;
   std::string statisticsFileName;
 public:
-  explicit DnsQueryStatistics(std::__cxx11::string statisticsFileName) :
+  explicit DnsQueryStatistics(std::string statisticsFileName) :
       statisticsFileName(move(statisticsFileName)) {
   }
 

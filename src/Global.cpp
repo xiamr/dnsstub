@@ -84,7 +84,7 @@ std::string Global::parseArguments(int argc, char *argv[]) {
 
   std::string config_filename;
 
-  boost::program_options::options_description desc("Dns cache server bypass great firewall");
+  boost::program_options::options_description desc("Dns cache server for bypassing great firewall");
   desc.add_options()
       ("help,h", "show this help message")
       ("config,c", boost::program_options::value<std::string>(&config_filename)->required(),
