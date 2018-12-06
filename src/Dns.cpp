@@ -390,7 +390,7 @@ Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
     dns2->questions = dns.questions;
 
     // shuffle the answers to realize the loadbalance
-    unsigned seed = std::chrono::_V2::system_clock::now().time_since_epoch().count();
+    unsigned seed = static_cast<unsigned int>(std::chrono::system_clock::now().time_since_epoch().count());
     for (auto iterator = res_anss.begin(); iterator != res_anss.end(); ++iterator) {
       if (iterator->Type == q.Type) {
         shuffle(iterator, res_anss.end(), std::default_random_engine(seed));
