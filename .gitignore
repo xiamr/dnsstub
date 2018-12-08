@@ -132,3 +132,8 @@ fabric.properties
 
 # Executables
 .idea/
+cmake/
+config.json
+config.xml
+pollution_domains.config
+statistics
