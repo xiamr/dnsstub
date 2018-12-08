@@ -42,7 +42,7 @@
   ],
   "pollution": "gfwlist",
   "statisticsFile": "statistics.log",
-  "su" : nobody,
+  "su" : "nobody",
   "enableCache": true,
   "enableTcp": true,
   "ipv6First": 1,
