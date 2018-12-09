@@ -22,6 +22,7 @@
 
 - ipv6 mode : force return ipv6 address when available <br>
 
+
 ---
 
 ##### command line options
@@ -56,7 +57,10 @@
   "localnet_server": {
     "address": "202.122.33.70",
     "port": 53
-  }
+  },
+  "mappings": [
+    { "domain" : "scholar.google.com*", "type" : "AAAA", "address" : "2404:6800:4008:c06::be"}
+  ]
 }
 ```
 
@@ -79,6 +83,9 @@
     <severity>info</severity>
     <remote_server address="8.8.8.8" port="53"/>
     <localnet_server address="202.122.37.87" port="53"/>
+     <mappings>
+        <mapping domain="scholar.google.com*" type="AAAA" address="2404:6800:4008:c06::be"/>
+    </mappings>
 </config>
 ```
 <br>
@@ -108,6 +115,7 @@
     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;fatal<br>
 - remote_server \[required]:  oversea dns server , default is 8.8.8.8
 - localnet_server \[required]: localNet dns server, provide by your ISP
+- mappings \[optinal] : set custom domain-address mappings
 
 
 
