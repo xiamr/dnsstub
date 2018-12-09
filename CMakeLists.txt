@@ -8,8 +8,11 @@ set(CMAKE_CXX_STANDARD 14)
 
 if (${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb3 ${CMAKE_CXX_FLAGS_DEBUG}")
+elseif(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
+    add_compile_options(-stdlib=libc++)
 endif()
 
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
 string(REPLACE ":" ";" LIBRARY_DIRS $ENV{LIBRARY_PATH})
 string(REPLACE ":" ";" CPATH_DIRS $ENV{CPATH})

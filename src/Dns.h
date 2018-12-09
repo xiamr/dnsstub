@@ -15,6 +15,10 @@
 #include <unordered_map>
 #include <queue>
 #include <iostream>
+#include <boost/bimap.hpp>
+#include <boost/bimap/unordered_set_of.hpp>
+#include <boost/bimap/set_of.hpp>
+#include <boost/bimap/list_of.hpp>
 
 class Cache;
 
@@ -45,6 +49,7 @@ class Dns {
 public:
   static std::unordered_set<std::string> polluted_domains;
 
+
   static bool isDomainValid(const std::string &domain);
 
   static void load_polluted_domains(const std::string &config_filename);
@@ -66,7 +71,8 @@ public:
     AAAA = 28, SRV = 33, NAPTR = 35, OPT = 41, IXPT = 251, AXFR = 252, ANY = 255
   };
 
-  static std::unordered_map<enum QType, std::string> QType2Name;
+
+  static boost::bimap<boost::bimaps::set_of<enum QType>, boost::bimaps::set_of<std::string>> QType2Name;
 
   enum QClass : uint16_t {
     IN = 1, NOCLASS = 254, ALL = 255
@@ -141,7 +147,7 @@ public:
   std::vector<Additional> additionals;
 
 
-  std::__cxx11::string getName(char *&ptr, char *buf, const char *upbound);
+  std::string getName(char *&ptr, char *buf, const char *upbound);
 
   char *toName(std::string &name, char *ptr, const char *buf, const char *upbound,
                std::unordered_map<std::string, uint16_t> &str_map);

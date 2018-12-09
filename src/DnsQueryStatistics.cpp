@@ -30,8 +30,8 @@ void DnsQueryStatistics::printStatisticsInfos() {
     result_list.push_back(iterator);
   }
 
-  std::__cxx11::string format_str1 = fmt::sprintf("%%%ds%%10s%%10s%%12s\n", max_name_len + 5);
-  std::__cxx11::string format_str2 = fmt::sprintf("%%%ds%%10s%%10s%%12d\n", max_name_len + 5);
+  std::string format_str1 = fmt::sprintf("%%%ds%%10s%%10s%%12s\n", max_name_len + 5);
+  std::string format_str2 = fmt::sprintf("%%%ds%%10s%%10s%%12d\n", max_name_len + 5);
 
   *os << fmt::sprintf(format_str1, "Name", "Class", "Type", "Count");
 
@@ -40,7 +40,7 @@ void DnsQueryStatistics::printStatisticsInfos() {
   long total_count = 0;
   for (auto &item : result_list) {
     auto &q = item->first;
-    *os << fmt::sprintf(format_str2, q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type], item->second);
+    *os << fmt::sprintf(format_str2, q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second, item->second);
     total_count += item->second;
   }
   *os << "----------------------------------------------------------" << std::endl;

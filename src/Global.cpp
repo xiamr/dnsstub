@@ -80,6 +80,8 @@ bool c_timeout = false;
 
 bool Global::debugMode = false;
 
+Config *Global::config = nullptr;
+
 std::string Global::parseArguments(int argc, char *argv[]) {
 
   std::string config_filename;

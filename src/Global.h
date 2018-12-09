@@ -9,6 +9,8 @@
 
 extern bool c_timeout;
 
+class Config;
+
 class Global {
   Global() = default;
 
@@ -17,6 +19,8 @@ public:
   static void printVersionInfos();
 
   static bool debugMode;
+
+  static Config *config;
 
 };
 

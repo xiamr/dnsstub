@@ -103,6 +103,19 @@ Config *Config::load_xml_config(std::string filename) {
   config->localnet_server_address = remote.attribute("address").value();
   config->localnet_server_port = remote.attribute("port").as_int(53);
 
+  auto mappings = root.child("mappings");
+  if (!mappings.empty()){
+    for (auto &mapping : mappings.children("mapping")){
+        std::string type_str = mapping.attribute("type").value();
+        std::string domain_str = mapping.attribute("domain").value();
+        std::string address_str = mapping.attribute("address").value();
+          config->reserved_domains_mapping[
+              std::make_pair(domain_str,Dns::QType2Name.right.find(type_str)->second)] = address_str;
+    }
+
+  }
+
+
   config->trimAll();
 
   return config;
@@ -162,6 +175,15 @@ Config *Config::load_json_config(std::string filename) {
       config->localnet_server_address = localnet.value("address", "");
       config->localnet_server_port = localnet.value("port", 53);
 
+
+      auto it = j.find("mappings");
+      if (it != j.end()) {
+        for (auto &item : *it) {
+          std::string type_str = item["type"];
+          config->reserved_domains_mapping[std::make_pair(item["domain"],
+                                                          Dns::QType2Name.right.find(type_str)->second)] = item["address"];
+        }
+      }
     } catch (nlohmann::detail::exception &exception) {
       std::cerr << exception.what() << std::endl;
       delete config;

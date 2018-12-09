@@ -23,6 +23,19 @@
             <xs:element name="severity" type="severity_level" default="info"/>
             <xs:element name="remote_server" type="addressPair"/>
             <xs:element name="localnet_server" type="addressPair"/>
+            <xs:element name="mappings">
+                <xs:complexType>
+                    <xs:sequence minOccurs="0">
+                        <xs:element name="mapping">
+                            <xs:complexType>
+                                <xs:attribute name="domain" type="xs:string"/>
+                                <xs:attribute name="type" type="xs:string"/>
+                                <xs:attribute name="address" type="xs:string"/>
+                            </xs:complexType>
+                        </xs:element>
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
           </xs:complexType>
     </xs:element>
 

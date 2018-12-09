@@ -26,7 +26,7 @@ class Dns;
 class DnsQueryStatistics {
   struct KeyHasher {
     std::size_t operator()(const Dns::Question &t) const {
-      return ((std::hash<std::__cxx11::string>()(t.name)
+      return ((std::hash<std::string>()(t.name)
                ^ (std::hash<uint16_t>()(t.Class) << 1)) >> 1)
              ^ (std::hash<uint16_t>()(t.Type) << 1);
     }

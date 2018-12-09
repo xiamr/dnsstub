@@ -22,30 +22,25 @@
 #include <iostream>
 #include <sys/types.h>
 #include <utility>
+#include <boost/assign.hpp>
+
 #include "Global.h"
 #include "DnsQueryStatistics.h"
 #include "Dns.h"
 #include "Cache.h"
+#include "Config.h"
+
 
 out_of_bound::out_of_bound(int line) : std::runtime_error(get_err_string(line)) {}
 
 std::unordered_set<std::string> Dns::polluted_domains;
-std::unordered_map<enum Dns::QType, std::string> Dns::QType2Name = {
-    {A,     "A"},
-    {NS,    "NS"},
-    {CNAME, "CNAME"},
-    {SOA,   "SOA"},
-    {PTR,   "PTR"},
-    {MX,    "MX"},
-    {TXT,   "TXT"},
-    {AAAA,  "AAAA"},
-    {SRV,   "SRV"},
-    {NAPTR, "NAPTR"},
-    {OPT,   "OPT"},
-    {IXPT,  "IXPT"},
-    {AXFR,  "AXFR"},
-    {ANY,   "ANY"}
-};
+
+boost::bimap<boost::bimaps::set_of<Dns::QType>, boost::bimaps::set_of<std::string>> Dns::QType2Name = \
+boost::assign::list_of<boost::bimap<boost::bimaps::set_of<Dns::QType>, boost::bimaps::set_of<std::string>>::relation >
+    (A,     "A")   (NS,    "NS")   (CNAME, "CNAME") (SOA,   "SOA") (PTR,   "PTR")
+    (MX,    "MX")  (TXT,   "TXT")  (AAAA,  "AAAA")  (SRV,   "SRV") (NAPTR, "NAPTR")
+    (OPT,   "OPT") (IXPT,  "IXPT") (AXFR,  "AXFR")  (ANY,   "ANY");
+
 std::unordered_map<enum Dns::QClass, std::string> Dns::QClass2Name = {
     {IN,      "IN"},
     {NOCLASS, "NOCLASS"},
@@ -127,7 +122,7 @@ void Dns::from_wire(char *buf, int len) {
 
 void Dns::checkLocalnetType() {
   if (0 == (signs & QR) and !questions.empty()) {
-    std::__cxx11::string domain = questions.front().name;
+    std::string domain = questions.front().name;
     for (const auto &pattern : polluted_domains) {
       if (fnmatch(pattern.c_str(), domain.c_str(), FNM_CASEFOLD) == 0) {
         // Match
@@ -138,9 +133,9 @@ void Dns::checkLocalnetType() {
   }
 }
 
-char *Dns::toName(std::__cxx11::string &origin_name, char *ptr, const char *buf, const char *upbound,
-                  std::unordered_map<std::__cxx11::string, uint16_t> &str_map) {
-  std::__cxx11::string name = origin_name;
+char *Dns::toName(std::string &origin_name, char *ptr, const char *buf, const char *upbound,
+                  std::unordered_map<std::string, uint16_t> &str_map) {
+  std::string name = origin_name;
   name.erase(name.end() - 1);
   if (name.length() == 0) {
     *ptr = '\0';
@@ -199,8 +194,8 @@ char *Dns::toName(std::__cxx11::string &origin_name, char *ptr, const char *buf,
 
 }
 
-std::__cxx11::string Dns::getName(char *&ptr, char *buf, const char *upbound) {
-  std::__cxx11::string name;
+std::string Dns::getName(char *&ptr, char *buf, const char *upbound) {
+  std::string name;
   bool first = true;
   while (true) {
     if (ptr > upbound) throw out_of_bound(__LINE__);
@@ -255,18 +250,18 @@ void Dns::print() {
 
   std::cout << "Questions" << std::endl;
   for (auto &q : questions) {
-    std::cout << q.name << "   " << QClass2Name[q.Class] << "  " << QType2Name[q.Type] << std::endl;
+    std::cout << q.name << "   " << QClass2Name[q.Class] << "  " << QType2Name.left.find(q.Type)->second << std::endl;
   }
   std::cout << "Answers" << std::endl;
   for (auto &ans : answers) {
-    std::cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name[ans.Type] << "  " << ans.rdata
+    std::cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name.left.find(ans.Type)->second << "  " << ans.rdata
               << std::endl;
   }
 
 }
 
 ssize_t Dns::to_wire(char *buf, int n) {
-  std::unordered_map<std::__cxx11::string, uint16_t> str_map;
+  std::unordered_map<std::string, uint16_t> str_map;
   char *ptr = buf;
   const char *upbound = buf + n;
   htons_ptr(ptr, id, upbound);
@@ -376,6 +371,28 @@ bool deep_find(Cache::Item *p, std::vector<Dns::Answer> &res_anss,
 Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
   std::vector<Answer> res_anss;
   auto &q = dns.questions[0];
+
+  if (q.Type == Dns::A or q.Type == Dns::AAAA) {
+    for (auto &item : Global::config->reserved_domains_mapping) {
+      if ( item.first.second == q.Type and fnmatch(item.first.first.c_str(), q.name.c_str(), FNM_CASEFOLD) == 0) {
+        // Match
+        Dns *dns2 = new Dns();
+        dns2->id = dns.id;
+        dns2->signs = dns.signs;
+        dns2->signs |= Dns::RA | Dns::QR;
+        dns2->questions = dns.questions;
+        Dns::Answer ans;
+        ans.name = q.name;
+        ans.Type = q.Type;
+        ans.TTL = 600;
+        ans.rdata = item.second;
+        ans.Class = Dns::IN;
+        dns2->answers.emplace_back(ans);
+        return dns2;
+      }
+    }
+  }
+
   Cache::Item *p = cache.getItem(q.name);
   if (p == nullptr) return nullptr;
   struct timespec time;

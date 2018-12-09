@@ -6,8 +6,11 @@
 #define DNSSTUB_CONFIG_H
 
 #include <string>
+#include <utility>
 #include <boost/log/trivial.hpp>
 #include <boost/bimap.hpp>
+
+#include "Dns.h"
 
 class Config {
   Config() = default;
@@ -21,7 +24,7 @@ public:
   };
 
   struct Local {
-      std::string address;
+    std::string address;
 
     Local(const std::string &address, uint16_t port) : address(address), port(port) {}
 
@@ -47,17 +50,29 @@ public:
 
   boost::log::trivial::severity_level current_severity;
 
+  struct pairhash {
+  public:
+    template<typename T, typename U>
+    std::size_t operator()(const std::pair<T, U> &x) const {
+      return std::hash<T>()(x.first) ^ std::hash<U>()(x.second);
+    }
+  };
+
+  std::unordered_map<std::pair<std::string, Dns::QType>, std::string, pairhash> reserved_domains_mapping;
+
 
   /**
    * factory method to new an instance
    * @param config_filename  [json or xml format]
    * @return
    */
-  static Config* load_config_file(const std::string &config_filename);
+  static Config *load_config_file(const std::string &config_filename);
 
 private:
-  static Config* load_xml_config(std::string filename);
-  static Config* load_json_config(std::string filename);
+  static Config *load_xml_config(std::string filename);
+
+  static Config *load_json_config(std::string filename);
+
   void trimAll();
 
   static std::unordered_map<std::string, boost::log::trivial::severity_level> severity_level_map;

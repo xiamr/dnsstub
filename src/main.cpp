@@ -142,7 +142,7 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
     return false;
   }
   auto &q = upstream->dns1.questions[0];
-  BOOST_LOG_TRIVIAL(info) << fmt::sprintf("%s  %s    %s", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name[q.Type]);
+  BOOST_LOG_TRIVIAL(info) << fmt::sprintf("%s  %s    %s", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second);
 
   if (q.Type == Dns::A and (Config::IPv6Mode::Full == config->ipv6First or
                             (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
@@ -774,6 +774,8 @@ int main(int argc, char *argv[]) {
     std::cerr << "Error load config file" << std::endl;
     exit(EXIT_FAILURE);
   }
+
+  Global::config = config;
 
   if (Global::debugMode) config->current_severity = boost::log::trivial::debug;
   boost_log_init(config);
