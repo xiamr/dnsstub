@@ -51,7 +51,7 @@
   "daemonMode": false,
   "severity": "info",
   "remote_server": {
-    "remote": "8.8.8.8",
+    "address": "8.8.8.8",
     "port": 53
   },
   "localnet_server": {
@@ -83,7 +83,7 @@
     <severity>info</severity>
     <remote_server address="8.8.8.8" port="53"/>
     <localnet_server address="202.122.37.87" port="53"/>
-     <mappings>
+    <mappings>
         <mapping domain="scholar.google.com*" type="AAAA" address="2404:6800:4008:c06::be"/>
     </mappings>
 </config>

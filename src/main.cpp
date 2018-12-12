@@ -142,7 +142,8 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
     return false;
   }
   auto &q = upstream->dns1.questions[0];
-  BOOST_LOG_TRIVIAL(info) << fmt::sprintf("%s  %s    %s", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second);
+  BOOST_LOG_TRIVIAL(info)
+    << fmt::sprintf("%s  %s    %s", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second);
 
   if (q.Type == Dns::A and (Config::IPv6Mode::Full == config->ipv6First or
                             (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
@@ -770,7 +771,7 @@ int main(int argc, char *argv[]) {
   std::string config_filename = Global::parseArguments(argc, argv);
 
   config = Config::load_config_file(config_filename);
-  if (!config){
+  if (!config) {
     std::cerr << "Error load config file" << std::endl;
     exit(EXIT_FAILURE);
   }
@@ -863,6 +864,12 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  BOOST_LOG_TRIVIAL(info) << "remote upstream   -> " << (upserver_addr.ss_family == AF_INET6 ?
+                                           fmt::sprintf("[%s]:%d", config->remote_server_address,
+                                                        config->remote_server_port) :
+                                           fmt::sprintf("%s:%d", config->remote_server_address,
+                                                        config->remote_server_port));
+
   bzero(&localnet_server_addr, sizeof(localnet_server_addr));
 
   if (inet_pton(AF_INET6, localnet_server_address, &((sockaddr_in6 *) &localnet_server_addr)->sin6_addr)) {
@@ -882,6 +889,13 @@ int main(int argc, char *argv[]) {
     BOOST_LOG_TRIVIAL(fatal) << "Can not open socket for localnet dns server :" << strerror(errno);
     exit(EXIT_FAILURE);
   }
+
+  BOOST_LOG_TRIVIAL(info) << "localNet upstream -> " << (localnet_server_addr.ss_family == AF_INET6 ?
+                                          fmt::sprintf("[%s]:%d", config->localnet_server_address,
+                                                       config->localnet_server_port) :
+                                          fmt::sprintf("%s:%d", config->localnet_server_address,
+                                                       config->localnet_server_port));
+
 
   if (!config->suUsername.empty()) {
     struct passwd *pass = getpwnam(config->suUsername.c_str());
