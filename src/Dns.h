@@ -7,7 +7,6 @@
 
 #include <libnet.h>
 #include <fnmatch.h>
-#include <fmt/printf.h>
 #include <boost/algorithm/string.hpp>
 #include <regex>
 #include <fstream>
@@ -19,11 +18,12 @@
 #include <boost/bimap/unordered_set_of.hpp>
 #include <boost/bimap/set_of.hpp>
 #include <boost/bimap/list_of.hpp>
+#include <boost/format.hpp>
 
 class Cache;
 
 inline std::string get_err_string(int num) {
-  return fmt::sprintf("__LINE__ %d", num);
+  return (boost::format("__LINE__ %d") % num).str();
 }
 
 

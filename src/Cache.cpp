@@ -8,7 +8,6 @@
 #include "json.hpp"
 #include <chrono>       // std::chrono::system_clock
 #include <random>       // std::default_random_engine
-#include <fmt/printf.h>
 #include <boost/algorithm/string.hpp>
 #include <regex>
 #include <fstream>

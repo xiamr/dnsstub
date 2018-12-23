@@ -5,7 +5,7 @@
 #include <string>
 #include <boost/program_options.hpp>
 #include <iostream>
-#include <fmt/printf.h>
+#include <boost/format.hpp>
 #include "Global.h"
 
 bool c_timeout = false;
@@ -91,7 +91,7 @@ std::string Global::parseArguments(int argc, char *argv[]) {
       ("help,h", "show this help message")
       ("config,c", boost::program_options::value<std::string>(&config_filename)->required(),
        "config file (json or xml format)")
-      ("debug,d",boost::program_options::value<bool>(&debugMode)->zero_tokens(),"debug severity mode");
+      ("debug,d", boost::program_options::value<bool>(&debugMode)->zero_tokens(), "debug severity mode");
 
   boost::program_options::positional_options_description p;
   p.add("config", 1);
@@ -116,9 +116,8 @@ std::string Global::parseArguments(int argc, char *argv[]) {
 void Global::printVersionInfos() {
   std::cout << "----------------------------------------------------------------------" << std::endl;
   std::cout << "CMake Configure Time : " << CMAKE_CONFIGURE_TIME << std::endl;
-  std::cout << "  Binaray Build Time : " << fmt::sprintf("%04d-%02d-%02d %02d:%02d:%2d\n",
-                                                         BUILD_YEAR, BUILD_MONTH, BUILD_DAY, BUILD_HOUR, BUILD_MIN,
-                                                         BUILD_SEC);
+  std::cout << "  Binaray Build Time : " << boost::format("%04d-%02d-%02d %02d:%02d:%2d\n")
+                                            % BUILD_YEAR % BUILD_MONTH % BUILD_DAY % BUILD_HOUR % BUILD_MIN % BUILD_SEC;
   std::cout << "             Version : " << DNSSTUB_VERSION << std::endl;
   std::cout << "              Author : " << DNSSTUB_AUTHOR << std::endl;
   std::cout << "----------------------------------------------------------------------" << std::endl << std::endl;

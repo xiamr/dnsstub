@@ -51,17 +51,17 @@ endif()
 link_libraries(pugixml)
 
 # fmt
-find_path(FMT_INCLUDES "fmt/printf.h" PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
-if(NOT FMT_INCLUDES)
-    message(FATAL_ERROR "fmt library < fmt header file> not found")
-endif()
-include_directories(${FMT_INCLUDES})
-
-find_library(LIBFMT fmt PATHS ${LIBRARY_DIRS})
-if(NOT LIBFMT)
-    message(FATAL_ERROR "fmt library < fmt library file> not found")
-endif()
-link_libraries(fmt)
+#find_path(FMT_INCLUDES "fmt/printf.h" PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
+#if(NOT FMT_INCLUDES)
+#    message(FATAL_ERROR "fmt library < fmt header file> not found")
+#endif()
+#include_directories(${FMT_INCLUDES})
+#
+#find_library(LIBFMT fmt PATHS ${LIBRARY_DIRS})
+#if(NOT LIBFMT)
+#    message(FATAL_ERROR "fmt library < fmt library file> not found")
+#endif()
+#link_libraries(fmt)
 
 
 include_directories(${PROJECT_BINARY_DIR})

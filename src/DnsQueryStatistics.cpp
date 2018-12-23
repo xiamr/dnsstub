@@ -6,6 +6,7 @@
 
 #include "DnsQueryStatistics.h"
 #include "Dns.h"
+#include <boost/format.hpp>
 
 void DnsQueryStatistics::printStatisticsInfos() {
   std::ostream *os = nullptr;
@@ -32,22 +33,25 @@ void DnsQueryStatistics::printStatisticsInfos() {
     result_list.push_back(iterator);
   }
 
-  std::string format_str1 = fmt::sprintf("%%%ds%%10s%%10s%%12s\n", max_name_len + 5);
-  std::string format_str2 = fmt::sprintf("%%%ds%%10s%%10s%%12d\n", max_name_len + 5);
+  std::string format_str1 = (boost::format("%%%ds%%10s%%10s%%12s\n") % (max_name_len + 5)).str();
+  std::string format_str2 = (boost::format("%%%ds%%10s%%10s%%12d\n") % (max_name_len + 5)).str();
 
-  *os << fmt::sprintf(format_str1, "Name", "Class", "Type", "Count");
+  *os << boost::format(format_str1) % "Name" % "Class" % "Type" % "Count";
 
   // sort count by descending order
   std::sort(result_list.begin(), result_list.end(), [](auto &i1, auto &i2) { return (i1->second > i2->second); });
   long total_count = 0;
   for (auto &item : result_list) {
     auto &q = item->first;
-    *os << fmt::sprintf(format_str2, q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second,
-                        item->second);
+    *os << boost::format(format_str2)
+           % q.name
+           % Dns::QClass2Name[q.Class]
+           % Dns::QType2Name.left.find(q.Type)->second
+           % item->second;
     total_count += item->second;
   }
   *os << "----------------------------------------------------------" << std::endl;
-  *os << fmt::sprintf(fmt::sprintf("Total%%%dd\n", max_name_len + 10 + 10 + 12), total_count);
+  *os << boost::format((boost::format("Total%%%dd\n") % (max_name_len + 10 + 10 + 12)).str()) % total_count;
   *os << "----------------------------------------------------------" << std::endl;
   if (typeid(*os) == typeid(std::ofstream)) {
     delete os;

@@ -6,7 +6,6 @@
 #define DNSSTUB_DNSQUERYSTATISTICS_H
 
 #include "Dns.h"
-#include <fmt/printf.h>
 #include <boost/algorithm/string.hpp>
 #include <regex>
 #include <fstream>

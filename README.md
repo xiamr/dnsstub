@@ -4,7 +4,7 @@
 
 ##### Requirements:
 - language : C++14
-- third-party libraries : boost 1.67 or above, pugixml, fmt,  JSON for Modern C++ (include by this package)
+- third-party libraries : boost 1.67 or above, pugixml, JSON for Modern C++ (include by this package)
 
 ##### Supported Platforms:
 - current only Linux OS is supported because Linux-specific APIs (such as epoll) are used

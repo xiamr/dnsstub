@@ -27,13 +27,16 @@
 #include <fstream>
 #include <regex>
 #include <functional>
-#include <boost/algorithm/string.hpp>
-#include <fmt/printf.h>
+
 #include <algorithm>    // std::shuffle
 #include <array>        // std::array
 #include <random>       // std::default_random_engine
 #include <chrono>       // std::chrono::system_clock
+
 #include "json.hpp"
+
+#include <boost/algorithm/string.hpp>
+
 #include <boost/program_options.hpp>
 #include <boost/checked_delete.hpp>
 
@@ -48,6 +51,7 @@
 #include <boost/log/utility/setup/common_attributes.hpp>
 #include <boost/log/support/date_time.hpp>
 
+#include <boost/format.hpp>
 
 #include "Config.h"
 #include "Global.h"
@@ -142,8 +146,8 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
     return false;
   }
   auto &q = upstream->dns1.questions[0];
-  BOOST_LOG_TRIVIAL(info)
-    << fmt::sprintf("%s  %s    %s", q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second);
+  BOOST_LOG_TRIVIAL(info) << q.name << "  " << Dns::QClass2Name[q.Class] << "  "
+                          << Dns::QType2Name.left.find(q.Type)->second;
 
   if (q.Type == Dns::A and (Config::IPv6Mode::Full == config->ipv6First or
                             (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
@@ -270,7 +274,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           ev.data.fd = upfd;
           int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
           if (ret < 0 and errno != EINPROGRESS) {
-            BOOST_LOG_TRIVIAL(error) << fmt::sprintf("connect failed %d : %s ", __LINE__, strerror(errno));
+            BOOST_LOG_TRIVIAL(error) << boost::format("connect failed %d : %s ") % __LINE__ % strerror(errno);
             return nullptr;
           }
           upstream->ser_fd = upfd;
@@ -279,11 +283,12 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           if (upstream->dns1.use_localnet_dns_server) {
             if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
                        sizeof(localnet_server_addr)) < 0) {
-              BOOST_LOG_TRIVIAL(warning) << fmt::sprintf("sendto up stream error %d : %s", __LINE__, strerror(errno));
+              BOOST_LOG_TRIVIAL(warning)
+                << boost::format("sendto up stream error %d : %s") % __LINE__ % strerror(errno);
             }
           } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
                      0) {
-            BOOST_LOG_TRIVIAL(warning) << fmt::sprintf("sendto up stream error %d : %s", __LINE__, strerror(errno));
+            BOOST_LOG_TRIVIAL(warning) << boost::format("sendto up stream error %d : %s") % __LINE__ % strerror(errno);
           }
           id_map[upstream->dns1.id] = upstream;
           upstream->next = nullptr;
@@ -378,7 +383,7 @@ void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr
     int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
     if (newcon < 0) {
       if (errno != EAGAIN or errno != EWOULDBLOCK)
-        BOOST_LOG_TRIVIAL(error) << fmt::sprintf("accept error %d : %s", __LINE__, strerror(errno));
+        BOOST_LOG_TRIVIAL(error) << boost::format("accept error %d : %s") % __LINE__ % strerror(errno);
       break;
     }
 
@@ -388,14 +393,15 @@ void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr
         auto in6 = reinterpret_cast<struct sockaddr_in6 *>(&cliaddr);
         if (inet_ntop(cliaddr.ss_family, &(in6->sin6_addr), remote_addr, 128)) {
           BOOST_LOG_TRIVIAL(debug)
-            << fmt::sprintf("new tcp connection from client [%s]:%d ", remote_addr, in6->sin6_port);
+            << boost::format("new tcp connection from client [%s]:%d ") % remote_addr % in6->sin6_port;
         }
       }
         break;
       case AF_INET: {
         auto in = reinterpret_cast<struct sockaddr_in *>(&cliaddr);
         if (inet_ntop(cliaddr.ss_family, &(in->sin_addr), remote_addr, 128)) {
-          BOOST_LOG_TRIVIAL(debug) << fmt::sprintf("new tcp connection from client %s:%d ", remote_addr, in->sin_port);
+          BOOST_LOG_TRIVIAL(debug)
+            << boost::format("new tcp connection from client %s:%d ") % remote_addr % in->sin_port;
         }
       }
         break;
@@ -592,7 +598,8 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
           BOOST_LOG_TRIVIAL(debug) << "Tcp connect to remote dns server ...";
         }
         if (ret < 0 and errno != EINPROGRESS) {
-          BOOST_LOG_TRIVIAL(warning) << fmt::sprintf("connect to up server error %d : %s", __LINE__, strerror(errno));
+          BOOST_LOG_TRIVIAL(warning)
+            << boost::format("connect to up server error %d : %s") % __LINE__ % strerror(errno);
         }
         up->ser_fd = upfd;
         server_tcp_con[upfd] = up;
@@ -811,9 +818,9 @@ int main(int argc, char *argv[]) {
     }
 
     if (s->addr.ss_family == AF_INET) {
-      BOOST_LOG_TRIVIAL(info) << fmt::sprintf("listen at %s:%d", local.address, local.port);
+      BOOST_LOG_TRIVIAL(info) << boost::format("listen at %s:%d") % local.address % local.port;
     } else {
-      BOOST_LOG_TRIVIAL(info) << fmt::sprintf("listen at [%s]:%d", local.address, local.port);
+      BOOST_LOG_TRIVIAL(info) << boost::format("listen at [%s]:%d") % local.address % local.port;
     }
 
     s->socket = socket(s->addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
@@ -822,7 +829,7 @@ int main(int argc, char *argv[]) {
       exit(EXIT_FAILURE);
     }
     if (bind(s->socket, (sockaddr *) &(s->addr), sizeof(s->addr)) == -1) {
-      BOOST_LOG_TRIVIAL(fatal) << fmt::sprintf("Can not bind port(%d) for listening", local.port);
+      BOOST_LOG_TRIVIAL(fatal) << boost::format("Can not bind port(%d) for listening") % local.port;
       exit(EXIT_FAILURE);
     }
     if (config->enableTcp) {
@@ -832,7 +839,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
       }
       if (bind(s->socket_tcp, (sockaddr *) &(s->addr), sizeof(s->addr)) == -1) {
-        BOOST_LOG_TRIVIAL(fatal) << fmt::sprintf("Can not bind port(%d) for listening", local.port);
+        BOOST_LOG_TRIVIAL(fatal) << boost::format("Can not bind port(%d) for listening") % local.port;
         exit(EXIT_FAILURE);
       }
       if (listen(s->socket_tcp, 10) < 0) {
@@ -855,7 +862,7 @@ int main(int argc, char *argv[]) {
     upserver_addr.ss_family = AF_INET;
     ((sockaddr_in *) &upserver_addr)->sin_port = htons(config->remote_server_port);
   } else {
-    BOOST_LOG_TRIVIAL(fatal) << fmt::sprintf("Remote addresss(%s) is invaild", remote_address);
+    BOOST_LOG_TRIVIAL(fatal) << boost::format("Remote addresss(%s) is invaild") % remote_address;
     exit(EXIT_FAILURE);
   }
   upserver_sock = socket(upserver_addr.ss_family, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
@@ -864,11 +871,9 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  BOOST_LOG_TRIVIAL(info) << "remote upstream   -> " << (upserver_addr.ss_family == AF_INET6 ?
-                                           fmt::sprintf("[%s]:%d", config->remote_server_address,
-                                                        config->remote_server_port) :
-                                           fmt::sprintf("%s:%d", config->remote_server_address,
-                                                        config->remote_server_port));
+  BOOST_LOG_TRIVIAL(info) << "remote upstream   -> " <<
+                          (upserver_addr.ss_family == AF_INET6 ? boost::format("[%s]:%d") : boost::format("%s:%d"))
+                          % config->remote_server_address % config->remote_server_port;
 
   bzero(&localnet_server_addr, sizeof(localnet_server_addr));
 
@@ -890,12 +895,10 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  BOOST_LOG_TRIVIAL(info) << "localNet upstream -> " << (localnet_server_addr.ss_family == AF_INET6 ?
-                                          fmt::sprintf("[%s]:%d", config->localnet_server_address,
-                                                       config->localnet_server_port) :
-                                          fmt::sprintf("%s:%d", config->localnet_server_address,
-                                                       config->localnet_server_port));
-
+  BOOST_LOG_TRIVIAL(info) << "localNet upstream -> "
+                          << (localnet_server_addr.ss_family == AF_INET6 ?
+                              boost::format("[%s]:%d") : boost::format("%s:%d"))
+                             % config->localnet_server_address % config->localnet_server_port;
 
   if (!config->suUsername.empty()) {
     struct passwd *pass = getpwnam(config->suUsername.c_str());
