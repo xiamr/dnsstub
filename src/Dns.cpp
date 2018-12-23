@@ -329,6 +329,8 @@ ssize_t Dns::to_wire(char *buf, int n) {
   return ptr - buf;
 }
 
+static bool c_timeout = false;
+
 bool deep_find(Cache::Item *p, std::vector<Dns::Answer> &res_anss,
                Cache &cache, Dns::QType type, struct timespec &time) {
   bool found = false;

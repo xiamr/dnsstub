@@ -53,6 +53,8 @@
 
 #include <boost/format.hpp>
 
+#include <boost/assert.hpp>
+
 #include "Config.h"
 #include "Global.h"
 #include "Dns.h"
@@ -141,6 +143,7 @@ std::unordered_set<int> tcp_server_set;
 
 
 bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
+  BOOST_ASSERT(upstream);
   if (upstream->dns1.questions.empty()) {
     boost::checked_delete(upstream);
     return false;

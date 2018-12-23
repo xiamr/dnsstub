@@ -8,7 +8,7 @@
 #include <boost/format.hpp>
 #include "Global.h"
 
-bool c_timeout = false;
+
 
 // Example of __DATE__ string: "Jul 27 2012"
 // Example of __TIME__ string: "21:06:19"

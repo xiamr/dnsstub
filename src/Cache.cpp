@@ -197,7 +197,7 @@ Cache::Relation *Cache::heap_extraxt_min() {
   return r;
 }
 
-Cache::Item *Cache::getItem(const std::__cxx11::string &name) {
+Cache::Item *Cache::getItem(const std::string &name) {
   auto it = item_hash.find(name);
   if (it == item_hash.end()) return nullptr;
   else return it->second;

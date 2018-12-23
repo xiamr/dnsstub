@@ -7,7 +7,7 @@
 
 #include <string>
 
-extern bool c_timeout;
+
 
 class Config;
 

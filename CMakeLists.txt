@@ -6,8 +6,8 @@ set(DNSSTUB_AUTHOR "MiaoRen Xia")
 
 set(CMAKE_CXX_STANDARD 14)
 
-if(${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
-    add_compile_options(-stdlib=libc++)
+if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
+    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb3")
 endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
