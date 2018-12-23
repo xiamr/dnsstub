@@ -14,9 +14,11 @@ void DnsQueryStatistics::printStatisticsInfos() {
   } else {
     auto ofs = new std::ofstream();
     os = ofs;
-    ofs->open(statisticsFileName);
-    if (ofs->fail()) {
-      std::cerr << "error opening statisticsInfo file <" << statisticsFileName << "> !" << std::endl;
+    ofs->exceptions(ofs->exceptions() | std::ios::failbit);
+    try {
+      ofs->open(statisticsFileName);
+    } catch (std::ios_base::failure &e) {
+      std::cerr << "error opening statisticsInfo file <" << statisticsFileName << "> !" << e.what() << std::endl;
       delete ofs;
       return;
     }
@@ -40,7 +42,8 @@ void DnsQueryStatistics::printStatisticsInfos() {
   long total_count = 0;
   for (auto &item : result_list) {
     auto &q = item->first;
-    *os << fmt::sprintf(format_str2, q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second, item->second);
+    *os << fmt::sprintf(format_str2, q.name, Dns::QClass2Name[q.Class], Dns::QType2Name.left.find(q.Type)->second,
+                        item->second);
     total_count += item->second;
   }
   *os << "----------------------------------------------------------" << std::endl;
