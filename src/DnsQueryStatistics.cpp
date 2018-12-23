@@ -4,9 +4,12 @@
 
 #include <vector>
 
+#include <boost/format.hpp>
+#include <boost/log/trivial.hpp>
+#include <boost/stacktrace.hpp>
+
 #include "DnsQueryStatistics.h"
 #include "Dns.h"
-#include <boost/format.hpp>
 
 void DnsQueryStatistics::printStatisticsInfos() {
   std::ostream *os = nullptr;
@@ -19,7 +22,8 @@ void DnsQueryStatistics::printStatisticsInfos() {
     try {
       ofs->open(statisticsFileName);
     } catch (std::ios_base::failure &e) {
-      std::cerr << "error opening statisticsInfo file <" << statisticsFileName << "> !" << e.what() << std::endl;
+      BOOST_LOG_TRIVIAL(error) << "error opening statisticsInfo file <" << statisticsFileName << "> !" << e.what();
+      BOOST_LOG_TRIVIAL(error) << boost::stacktrace::stacktrace();
       delete ofs;
       return;
     }

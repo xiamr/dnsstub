@@ -7,7 +7,8 @@ set(DNSSTUB_AUTHOR "MiaoRen Xia")
 set(CMAKE_CXX_STANDARD 14)
 
 if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
-    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb3")
+    set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb3")
+    add_definitions(-DBOOST_STACKTRACE_USE_ADDR2LINE)
 endif()
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
@@ -36,6 +37,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES})
 
 add_definitions("-DBOOST_LOG_DYN_LINK")
+link_libraries(dl)
 
 # pugixml
 find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})

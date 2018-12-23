@@ -7,7 +7,9 @@
 #include <fstream>
 #include <iostream>
 #include <boost/algorithm/string.hpp>
+#include <boost/stacktrace.hpp>
 #include <pugixml.hpp>
+
 #include "json.hpp"
 #include "Config.h"
 
