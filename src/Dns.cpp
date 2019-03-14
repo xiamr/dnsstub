@@ -35,10 +35,10 @@ out_of_bound::out_of_bound(int line) : std::runtime_error(get_err_string(line)) 
 std::unordered_set<std::string> Dns::polluted_domains;
 
 boost::bimap<boost::bimaps::set_of<Dns::QType>, boost::bimaps::set_of<std::string>> Dns::QType2Name = \
-boost::assign::list_of<boost::bimap<boost::bimaps::set_of<Dns::QType>, boost::bimaps::set_of<std::string>>::relation >
-    (A,     "A")   (NS,    "NS")   (CNAME, "CNAME") (SOA,   "SOA") (PTR,   "PTR")
-    (MX,    "MX")  (TXT,   "TXT")  (AAAA,  "AAAA")  (SRV,   "SRV") (NAPTR, "NAPTR")
-    (OPT,   "OPT") (IXPT,  "IXPT") (AXFR,  "AXFR")  (ANY,   "ANY");
+boost::assign::list_of<boost::bimap<boost::bimaps::set_of<Dns::QType>, boost::bimaps::set_of<std::string>>::relation>
+    (A, "A")(NS, "NS")(CNAME, "CNAME")(SOA, "SOA")(PTR, "PTR")
+    (MX, "MX")(TXT, "TXT")(AAAA, "AAAA")(SRV, "SRV")(NAPTR, "NAPTR")
+    (OPT, "OPT")(IXPT, "IXPT")(AXFR, "AXFR")(ANY, "ANY");
 
 std::unordered_map<enum Dns::QClass, std::string> Dns::QClass2Name = {
     {IN,      "IN"},
@@ -253,7 +253,8 @@ void Dns::print() {
   }
   std::cout << "Answers" << std::endl;
   for (auto &ans : answers) {
-    std::cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name.left.find(ans.Type)->second << "  " << ans.rdata
+    std::cout << ans.name << "  " << QClass2Name[ans.Class] << "   " << QType2Name.left.find(ans.Type)->second << "  "
+              << ans.rdata
               << std::endl;
   }
 
@@ -369,27 +370,32 @@ bool deep_find(Cache::Item *p, std::vector<Dns::Answer> &res_anss,
 }
 
 
-Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache) {
+Dns *Dns::make_response_by_cache(Dns &dns, Cache &cache, struct sockaddr_storage &client_addr) {
   std::vector<Answer> res_anss;
   auto &q = dns.questions[0];
 
   if (q.Type == Dns::A or q.Type == Dns::AAAA) {
     for (auto &item : Global::config->reserved_domains_mapping) {
-      if ( item.first.second == q.Type and fnmatch(item.first.first.c_str(), q.name.c_str(), FNM_CASEFOLD) == 0) {
-        // Match
-        Dns *dns2 = new Dns();
-        dns2->id = dns.id;
-        dns2->signs = dns.signs;
-        dns2->signs |= Dns::RA | Dns::QR;
-        dns2->questions = dns.questions;
-        Dns::Answer ans;
-        ans.name = q.name;
-        ans.Type = q.Type;
-        ans.TTL = 600;
-        ans.rdata = item.second;
-        ans.Class = Dns::IN;
-        dns2->answers.emplace_back(ans);
-        return dns2;
+      if (
+//          item.first.second == q.Type and
+          fnmatch(item.first.first.c_str(), q.name.c_str(), FNM_CASEFOLD) == 0) {
+        auto record = item.second;
+        if (!record.scopes.size() or record.match(client_addr)) {
+          // Match
+          Dns *dns2 = new Dns();
+          dns2->id = dns.id;
+          dns2->signs = dns.signs;
+          dns2->signs |= Dns::RA | Dns::QR;
+          dns2->questions = dns.questions;
+          Dns::Answer ans;
+          ans.name = q.name;
+          ans.Type = item.first.second;
+          ans.TTL = 600;
+          ans.rdata = record.address;
+          ans.Class = Dns::IN;
+          dns2->answers.emplace_back(ans);
+          return dns2;
+        }
       }
     }
   }

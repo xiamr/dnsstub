@@ -190,7 +190,7 @@ bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
   return true;
 }
 
-Upstream *check(char *buf, ssize_t &n, bool tcp) {
+Upstream *check(char *buf, ssize_t &n, bool tcp = false, int epollfd = 0) {
   uint16_t up_id = ntohs(*(uint16_t *) buf);
   auto it = id_map.find(up_id);
   if (it != id_map.end()) {
@@ -233,10 +233,10 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
 
     if (!upstream->checked_ipv6) {
 
+
       for (auto &ans : dns1.answers) {
         if (ans.Type == Dns::AAAA) {
           upstream->checked_ipv6 = true;
-
           break;
         }
       }
@@ -253,7 +253,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
           return nullptr;
         }
       } else {
-        if (!upstream->ipv6_trun) cache.noipv6_domain.insert(dns1.questions[0].name);
+//        if (!upstream->ipv6_trun) cache.noipv6_domain.insert(dns1.questions[0].name);
         upstream->checked_ipv6 = true;
         upstream->dns1.questions[0].Type = Dns::A;
         upstream->dns1.id = get_id();
@@ -285,6 +285,8 @@ Upstream *check(char *buf, ssize_t &n, bool tcp) {
             BOOST_LOG_TRIVIAL(error) << boost::format("connect failed %d : %s ") % __LINE__ % strerror(errno);
             return nullptr;
           }
+          epoll_ctl(epollfd, EPOLL_CTL_ADD, upfd, &ev);
+          BOOST_LOG_TRIVIAL(debug) << "new tcp connnect to server";
           upstream->ser_fd = upfd;
           server_tcp_con[upfd] = upstream;
         } else {
@@ -388,6 +390,7 @@ void read_buf(int fd, char *buf, Upstream *up) {
 
 void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr, socklen_t &socklen, epoll_event &ev) {
   for (;;) {
+    socklen = sizeof(cliaddr);
     int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
     if (newcon < 0) {
       if (errno != EAGAIN or errno != EWOULDBLOCK)
@@ -450,7 +453,8 @@ void readServerResponse(int server_sock, char *buf) {
 void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, socklen_t &socklen,
                      DnsQueryStatistics &statistics) {
   ssize_t n;
-  while ((n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
+  while (socklen = sizeof(struct sockaddr_storage),
+      (n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen)) > 0) {
     BOOST_LOG_TRIVIAL(debug) << "new udp request from client";
 
     auto up = new Upstream;
@@ -471,16 +475,17 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
                                              config->ipv6First : false)) {
       if (up->dns1.questions[0].Type == Dns::A
-          and !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
+//          and !cache.noipv6_domain.count(up->dns1.questions[0].name)
+          ) {
         up->dns1.questions[0].Type = Dns::AAAA;
-        response = up->dns1.make_response_by_cache(up->dns1, cache);
+        response = up->dns1.make_response_by_cache(up->dns1, cache, cliaddr);
         if (response) response->questions[0].Type = Dns::A;
         up->dns1.questions[0].Type = Dns::A;
       } else {
-        response = up->dns1.make_response_by_cache(up->dns1, cache);
+        response = up->dns1.make_response_by_cache(up->dns1, cache,cliaddr);
       }
     } else {
-      response = up->dns1.make_response_by_cache(up->dns1, cache);
+      response = up->dns1.make_response_by_cache(up->dns1, cache,cliaddr);
     }
     if (response) {
       try {
@@ -552,17 +557,18 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
       if (Config::IPv6Mode::Full == config->ipv6First or
           (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
                                                config->ipv6First : false)) {
-        if (up->dns1.questions[0].Type == Dns::A and
-            !cache.noipv6_domain.count(up->dns1.questions[0].name)) {
+        if (up->dns1.questions[0].Type == Dns::A
+//        and !cache.noipv6_domain.count(up->dns1.questions[0].name)
+            ) {
           up->dns1.questions[0].Type = Dns::AAAA;
-          response = up->dns1.make_response_by_cache(up->dns1, cache);
+          response = up->dns1.make_response_by_cache(up->dns1, cache, up->cliaddr);
           if (response) response->questions[0].Type = Dns::A;
           up->dns1.questions[0].Type = Dns::A;
         } else {
-          response = up->dns1.make_response_by_cache(up->dns1, cache);
+          response = up->dns1.make_response_by_cache(up->dns1, cache, up->cliaddr);
         }
       } else {
-        response = up->dns1.make_response_by_cache(up->dns1, cache);
+        response = up->dns1.make_response_by_cache(up->dns1, cache, up->cliaddr);
       }
       if (response) {
         try {
@@ -653,7 +659,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
       BOOST_LOG_TRIVIAL(debug) << "recv tcp response from server";
       memcpy(buf + 2, up->buf, up->data_len);
 
-      auto upstream = check(buf + 2, up->data_len, true);
+      auto upstream = check(buf + 2, up->data_len, true,epollfd);
       if (upstream == nullptr)
         return;
       *(uint16_t *) buf = htons(up->data_len);

@@ -6,11 +6,11 @@
     <xs:element name="config">
         <xs:complexType>
             <xs:element name="locals">
-                 <xs:complexType>
-                     <xs:sequence minOccurs="1">
-                         <xs:element name="local" type="addressPair"/>
-                     </xs:sequence>
-                 </xs:complexType>
+                <xs:complexType>
+                    <xs:sequence minOccurs="1">
+                        <xs:element name="local" type="addressPair"/>
+                    </xs:sequence>
+                </xs:complexType>
             </xs:element>
             <xs:element name="su" type="xs:string" default=""/>
             <xs:element name="pollution" type="xs:string"/>
@@ -31,12 +31,19 @@
                                 <xs:attribute name="domain" type="xs:string"/>
                                 <xs:attribute name="type" type="xs:string"/>
                                 <xs:attribute name="address" type="xs:string"/>
+                                <xs:element name="scopes">
+                                    <xs:complexType>
+                                        <xs:sequence minOccurs="0">
+                                            <xs:element name="scope" type="xs:string"/>
+                                        </xs:sequence>
+                                    </xs:complexType>
+                                </xs:element>
                             </xs:complexType>
                         </xs:element>
                     </xs:sequence>
                 </xs:complexType>
             </xs:element>
-          </xs:complexType>
+        </xs:complexType>
     </xs:element>
 
     <xs:simpleType name="portType">
@@ -53,12 +60,12 @@
 
     <xs:simpleType name="severity_level">
         <xs:restriction base="xs:string">
-            <xs:enumeration value="trace" />
-            <xs:enumeration value="debug" />
-            <xs:enumeration value="info" />
-            <xs:enumeration value="warning" />
-            <xs:enumeration value="error" />
-            <xs:enumeration value="fatal" />
+            <xs:enumeration value="trace"/>
+            <xs:enumeration value="debug"/>
+            <xs:enumeration value="info"/>
+            <xs:enumeration value="warning"/>
+            <xs:enumeration value="error"/>
+            <xs:enumeration value="fatal"/>
         </xs:restriction>
     </xs:simpleType>
 </xs:schema>

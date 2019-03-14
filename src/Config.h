@@ -9,6 +9,9 @@
 #include <utility>
 #include <boost/log/trivial.hpp>
 #include <boost/bimap.hpp>
+#include <netinet/in.h>
+
+#include "config.h"
 
 #include "Dns.h"
 
@@ -50,6 +53,32 @@ public:
 
   boost::log::trivial::severity_level current_severity;
 
+  class DnsRecord {
+  public:
+    std::string address;
+
+    struct Scope {
+      //scope
+      sa_family_t scope_ss_family;
+
+      union {
+        struct in_addr addr;
+        struct in6_addr addr6;
+      } scope_addr;
+
+      union {
+        struct in_addr mask;
+        struct in6_addr mask6;
+      } scope_mask;
+
+    };
+
+    std::vector<struct Scope> scopes;
+
+    bool match(struct sockaddr_storage &client_addr);
+
+  };
+
   struct pairhash {
   public:
     template<typename T, typename U>
@@ -58,7 +87,7 @@ public:
     }
   };
 
-  std::unordered_map<std::pair<std::string, Dns::QType>, std::string, pairhash> reserved_domains_mapping;
+  std::unordered_map<std::pair<std::string, Dns::QType>, DnsRecord, pairhash> reserved_domains_mapping;
 
 
   /**
@@ -69,9 +98,11 @@ public:
   static Config *load_config_file(const std::string &config_filename);
 
 private:
-  static Config *load_xml_config(std::string filename);
+#ifdef ENABLE_XML
+  static Config *load_xml_config(const std::string &filename);
+#endif
 
-  static Config *load_json_config(std::string filename);
+  static Config *load_json_config(const std::string &filename);
 
   void trimAll();
 

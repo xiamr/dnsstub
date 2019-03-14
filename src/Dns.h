@@ -159,7 +159,7 @@ public:
 
   bool use_localnet_dns_server = true;
 
-  Dns *make_response_by_cache(Dns &dns, Cache &cache);
+  Dns *make_response_by_cache(Dns &dns, Cache &cache, struct sockaddr_storage &client_addr);
 
 private:
   uint16_t ntohs_ptr(char *&ptr, const char *upbound) {

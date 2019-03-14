@@ -8,8 +8,8 @@ set(CMAKE_CXX_STANDARD 14)
 
 if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb3")
-    add_definitions(-DBOOST_STACKTRACE_USE_ADDR2LINE)
 endif()
+
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
 
@@ -32,38 +32,30 @@ link_libraries(rt)
 # Boost
 set(BOOST_INCLUDEDIR ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
 set(BOOST_LIBRARYDIR ${LIBRARY_DIRS})
-find_package(Boost 1.67 REQUIRED COMPONENTS program_options log log_setup container)
+find_package(Boost 1.67 REQUIRED COMPONENTS program_options log log_setup container stacktrace_addr2line)
 include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES})
 
-add_definitions("-DBOOST_LOG_DYN_LINK")
+add_definitions(-DBOOST_LOG_DYN_LINK)
+add_definitions(-DBOOST_STACKTRACE_DYN_LINK)
 link_libraries(dl)
+add_link_options(-rdynamic)
 
-# pugixml
-find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
-if(NOT PUGIXML_INCLUDES)
-    message(FATAL_ERROR "xml parse library < pugixml header file> not found")
+option(ENABLE_XML "use xml configuration format based on pugixml" OFF)
+if (ENABLE_XML)
+    # pugixml
+    find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
+    if(NOT PUGIXML_INCLUDES)
+        message(FATAL_ERROR "xml parse library < pugixml header file> not found")
+    endif()
+    include_directories(${PUGIXML_INCLUDES})
+
+    find_library(LIBPUGIXML pugixml PATHS ${LIBRARY_DIRS})
+    if(NOT LIBPUGIXML)
+        message(FATAL_ERROR "xml parse library < pugixml library file> not found")
+    endif()
+    link_libraries(pugixml)
 endif()
-include_directories(${PUGIXML_INCLUDES})
-
-find_library(LIBPUGIXML pugixml PATHS ${LIBRARY_DIRS})
-if(NOT LIBPUGIXML)
-    message(FATAL_ERROR "xml parse library < pugixml library file> not found")
-endif()
-link_libraries(pugixml)
-
-# fmt
-#find_path(FMT_INCLUDES "fmt/printf.h" PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
-#if(NOT FMT_INCLUDES)
-#    message(FATAL_ERROR "fmt library < fmt header file> not found")
-#endif()
-#include_directories(${FMT_INCLUDES})
-#
-#find_library(LIBFMT fmt PATHS ${LIBRARY_DIRS})
-#if(NOT LIBFMT)
-#    message(FATAL_ERROR "fmt library < fmt library file> not found")
-#endif()
-#link_libraries(fmt)
 
 
 include_directories(${PROJECT_BINARY_DIR})

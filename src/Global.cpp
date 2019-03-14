@@ -90,7 +90,11 @@ std::string Global::parseArguments(int argc, char *argv[]) {
   desc.add_options()
       ("help,h", "show this help message")
       ("config,c", boost::program_options::value<std::string>(&config_filename)->required(),
-       "config file (json or xml format)")
+       "config file (json "
+#ifdef ENABLE_XML
+       "or xml "
+#endif
+       "format)")
       ("debug,d", boost::program_options::value<bool>(&debugMode)->zero_tokens(), "debug severity mode");
 
   boost::program_options::positional_options_description p;

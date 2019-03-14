@@ -1,10 +1,11 @@
 ## DNSSTUB
 
 ### A tiny dns cache server implementation for avoiding dns contamination
+### 一个抵抗域名污染的小型实现
 
 ##### Requirements:
 - language : C++14
-- third-party libraries : boost 1.67 or above, pugixml, JSON for Modern C++ (include by this package)
+- third-party libraries : boost 1.67 or above, pugixml (optional), JSON for Modern C++ (include by this package)
 
 ##### Supported Platforms:
 - current only Linux OS is supported because Linux-specific APIs (such as epoll) are used
@@ -59,7 +60,7 @@
     "port": 53
   },
   "mappings": [
-    { "domain" : "scholar.google.com*", "type" : "AAAA", "address" : "2404:6800:4008:c06::be"}
+    { "domain" : "scholar.google.com*", "type" : "AAAA", "address" : "2404:6800:4008:c06::be", "scopes" : ["192.168.0.0/16"]}
   ]
 }
 ```
@@ -84,7 +85,10 @@
     <remote_server address="8.8.8.8" port="53"/>
     <localnet_server address="202.122.37.87" port="53"/>
     <mappings>
-        <mapping domain="scholar.google.com*" type="AAAA" address="2404:6800:4008:c06::be"/>
+        <mapping domain="scholar.google.com*" type="AAAA" address="2404:6800:4008:c06::be" />
+            <scopes>
+                <scope>192.168.0.0/16</scope>
+            </scopes>
     </mappings>
 </config>
 ```
@@ -116,6 +120,7 @@
 - remote_server \[required]:  oversea dns server , default is 8.8.8.8
 - localnet_server \[required]: localNet dns server, provide by your ISP
 - mappings \[optinal] : set custom domain-address mappings
+- scopes  \[optinal] : set effective scope for specific address range
 
 
 
