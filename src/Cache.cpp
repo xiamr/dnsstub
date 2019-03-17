@@ -122,15 +122,15 @@ void Cache::timeout() {
 
 }
 
-void Cache::set_timer(double mtime) {
-  struct itimerspec itimer;
+void Cache::set_timer(double /*mtime*/) {
+  struct itimerspec itimer{};
   itimer.it_interval.tv_nsec = 0;
   itimer.it_interval.tv_sec = 0;
 
   if (sorted_heap.empty()) {
     itimer.it_value.tv_sec = 0;
   } else {
-    itimer.it_value.tv_sec = heap_min()->exp_time;
+    itimer.it_value.tv_sec = static_cast<__time_t>(heap_min()->exp_time);
   }
   itimer.it_value.tv_nsec = 0;
   double ntime = itimer.it_value.tv_sec + itimer.it_value.tv_nsec * 10e-9;
@@ -151,7 +151,7 @@ void Cache::heap_decrease_key(int i) {
 void Cache::heap_increase_key(int i) {
   // left 2*(i+1) - 1  and right 2*(i+1)
 
-  unsigned long size = sorted_heap.size();
+  int size = static_cast<int>(sorted_heap.size());
   for (;;) {
 
     int left_child = LEFT_CHILD(i);

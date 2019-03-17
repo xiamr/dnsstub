@@ -146,7 +146,7 @@ std::unordered_map<int, SocketUnit *> udp_server_map;
 std::unordered_set<int> tcp_server_set;
 
 
-bool add_upstream(char *buf, ssize_t n, Upstream *upstream) {
+bool add_upstream(char * /* buf */, ssize_t /* n */, Upstream *upstream) {
   BOOST_ASSERT(upstream);
   if (upstream->dns1.questions.empty()) {
     boost::checked_delete(upstream);
@@ -537,7 +537,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
   if (event.events & EPOLLIN) {
     BOOST_LOG_TRIVIAL(debug) << "tcp request data from client";
     read_buf(event.data.fd, buf, up);
-    if (up->data_len == up->buf_len != 0) {
+    if (up->data_len != 0 and up->buf_len != 0) {
       try {
         up->dns1.from_wire(up->buf, up->buf_len);
       } catch (out_of_bound &err) {
@@ -926,7 +926,6 @@ int main(int argc, char *argv[]) {
   struct sockaddr_storage cliaddr;
   socklen_t socklen;
   char buf[max_udp_len];
-  ssize_t n;
 
   struct epoll_event ev{}, events[100];
   int epollfd;
@@ -962,7 +961,7 @@ int main(int argc, char *argv[]) {
   ev.data.fd = tfd;
   epoll_ctl(epollfd, EPOLL_CTL_ADD, tfd, &ev);
 
-  int cache_tfd;
+  int cache_tfd{};
   if (config->enableCache) {
     cache_tfd = timerfd_create(CLOCK_MONOTONIC, 0);
     ev.events = EPOLLIN | EPOLLET;

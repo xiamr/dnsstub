@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 14)
 
 if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS_DEBUG "-O0 -ggdb3")
+    add_compile_options(-Wall -Wextra)
 endif()
 
 
@@ -44,7 +45,7 @@ add_link_options(-rdynamic)
 option(ENABLE_XML "use xml configuration format based on pugixml" OFF)
 if (ENABLE_XML)
     # pugixml
-    find_path(PUGIXML_INCLUDES pugixml.hpp PATHS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
+    find_path(PUGIXML_INCLUDES pugixml.hpp HITS ${CPATH_DIRS} ${C_INCLUDE_DIRS} ${CPLUS_INCLUDE_DIRS} ${DEFAULT_INCLUDE_DIRS})
     if(NOT PUGIXML_INCLUDES)
         message(FATAL_ERROR "xml parse library < pugixml header file> not found")
     endif()
@@ -54,7 +55,7 @@ if (ENABLE_XML)
     if(NOT LIBPUGIXML)
         message(FATAL_ERROR "xml parse library < pugixml library file> not found")
     endif()
-    link_libraries(pugixml)
+    link_libraries(${LIBPUGIXML})
 endif()
 
 

@@ -93,7 +93,7 @@ void fill_scope(Config::DnsRecord &dnsRecord, const std::string &scope_str) {
         try {
           number = boost::lexical_cast<int>(results[1].c_str());
         } catch (boost::bad_lexical_cast &e) {
-          std::cerr << "mask length must be a integer: " << number << "  " << e.what() << std::endl;
+          std::cerr << "mask length must be a integer: " << e.what() << std::endl;
           exit(4);
         }
       }
@@ -120,7 +120,7 @@ void fill_scope(Config::DnsRecord &dnsRecord, const std::string &scope_str) {
         try {
           number = boost::lexical_cast<int>(results[1].c_str());
         } catch (boost::bad_lexical_cast &e) {
-          std::cerr << "mask length must be a integer: " << number << "  " << e.what() << std::endl;
+          std::cerr << "mask length must be a integer: " <<  e.what() << std::endl;
           exit(4);
         }
 
@@ -222,8 +222,8 @@ Config *Config::load_xml_config(const std::string &filename) {
   config->remote_server_port = remote.attribute("port").as_int(53);
 
   const pugi::xml_node &localnet = root.child("localnet_server");
-  config->localnet_server_address = remote.attribute("address").value();
-  config->localnet_server_port = remote.attribute("port").as_int(53);
+  config->localnet_server_address = localnet.attribute("address").value();
+  config->localnet_server_port = localnet.attribute("port").as_int(53);
 
   auto mappings = root.child("mappings");
   if (!mappings.empty()) {
