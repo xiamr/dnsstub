@@ -103,7 +103,6 @@ void Cache::timeout() {
       r->parent_item->child_relations.erase(r);
       r->child_item->parent_relations.erase(r);
 
-      delete heap_extraxt_min();
       if ((r->parent_item->parent_relations.size() + r->parent_item->child_relations.size()) == 0) {
         item_hash.erase(r->parent_item->name);
         delete r->parent_item;
@@ -112,6 +111,7 @@ void Cache::timeout() {
         item_hash.erase(r->child_item->name);
         delete r->child_item;
       }
+      delete heap_extraxt_min();
 
       continue;
     }
@@ -130,7 +130,7 @@ void Cache::set_timer(double /*mtime*/) {
   if (sorted_heap.empty()) {
     itimer.it_value.tv_sec = 0;
   } else {
-    itimer.it_value.tv_sec = static_cast<__time_t>(heap_min()->exp_time);
+    itimer.it_value.tv_sec = heap_min()->exp_time;
   }
   itimer.it_value.tv_nsec = 0;
   double ntime = itimer.it_value.tv_sec + itimer.it_value.tv_nsec * 10e-9;
@@ -158,19 +158,40 @@ void Cache::heap_increase_key(int i) {
     int right_child = RIGHT_CHILD(i);
 
     if (left_child < size and right_child < size) {
-      if (sorted_heap[left_child]->exp_time < sorted_heap[right_child]->exp_time) {
+      if (sorted_heap[i]->exp_time > sorted_heap[left_child]->exp_time
+          and sorted_heap[i]->exp_time > sorted_heap[right_child]->exp_time) {
+
+        if (sorted_heap[left_child]->exp_time < sorted_heap[right_child]->exp_time) {
+          swap(i, left_child);
+          i = left_child;
+        } else {
+          swap(i, right_child);
+          i = right_child;
+        }
+      } else if (sorted_heap[i]->exp_time > sorted_heap[left_child]->exp_time) {
+        swap(i, left_child);
+        i = left_child;
+      } else if (sorted_heap[i]->exp_time > sorted_heap[right_child]->exp_time) {
+        swap(i, right_child);
+        i = right_child;
+      } else {
+        break;
+      }
+
+    } else if (left_child < size) {
+      if (sorted_heap[i]->exp_time > sorted_heap[left_child]->exp_time) {
         swap(i, left_child);
         i = left_child;
       } else {
+        break;
+      }
+    } else if (right_child < size) {
+      if (sorted_heap[i]->exp_time > sorted_heap[right_child]->exp_time) {
         swap(i, right_child);
         i = right_child;
+      } else {
+        break;
       }
-    } else if (left_child < size) {
-      swap(i, left_child);
-      i = left_child;
-    } else if (right_child < size) {
-      swap(i, right_child);
-      i = right_child;
     } else {
       break;
     }

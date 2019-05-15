@@ -6,7 +6,6 @@
 
 #include <boost/format.hpp>
 #include <boost/log/trivial.hpp>
-#include <boost/stacktrace.hpp>
 
 #include "DnsQueryStatistics.h"
 #include "Dns.h"
@@ -23,7 +22,6 @@ void DnsQueryStatistics::printStatisticsInfos() {
       ofs->open(statisticsFileName);
     } catch (std::ios_base::failure &e) {
       BOOST_LOG_TRIVIAL(error) << "error opening statisticsInfo file <" << statisticsFileName << "> !" << e.what();
-      BOOST_LOG_TRIVIAL(error) << boost::stacktrace::stacktrace();
       delete ofs;
       return;
     }

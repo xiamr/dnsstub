@@ -55,8 +55,6 @@
 
 #include <boost/assert.hpp>
 
-#include <boost/stacktrace.hpp>
-
 #include "Config.h"
 #include "Global.h"
 #include "Dns.h"
@@ -79,13 +77,11 @@ int setnonblocking(int fd) {
   int old_option = fcntl(fd, F_GETFL);
   if (old_option == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "get file descriptor flags failed : " << strerror(errno);
-    BOOST_LOG_TRIVIAL(fatal) << boost::stacktrace::stacktrace();
     exit(EXIT_FAILURE);
   }
   int new_option = old_option | O_NONBLOCK;
   if (fcntl(fd, F_SETFL, new_option) == -1) {
     BOOST_LOG_TRIVIAL(fatal) << "set nonblocking failed! " << strerror(errno);
-    BOOST_LOG_TRIVIAL(fatal) << boost::stacktrace::stacktrace();
     exit(EXIT_FAILURE);
   }
   return old_option;
@@ -274,7 +270,6 @@ Upstream *check(char *buf, ssize_t &n, bool tcp = false, int epollfd = 0) {
           upfd = socket(upserver_addr.ss_family, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
           if (upfd < 0) {
             BOOST_LOG_TRIVIAL(fatal) << "Can not open socket for listenning...";
-            BOOST_LOG_TRIVIAL(fatal) << boost::stacktrace::stacktrace();
             exit(EXIT_FAILURE);
           }
           struct epoll_event ev{};
@@ -794,7 +789,6 @@ int main(int argc, char *argv[]) {
   config = Config::load_config_file(config_filename);
   if (!config) {
     std::cerr << "Error load config file" << std::endl;
-    std::cerr << boost::stacktrace::stacktrace();
     exit(EXIT_FAILURE);
   }
 

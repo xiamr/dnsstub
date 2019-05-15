@@ -8,7 +8,6 @@
 #include <iostream>
 #include <vector>
 #include <boost/algorithm/string.hpp>
-#include <boost/stacktrace.hpp>
 #include <boost/lexical_cast.hpp>
 
 #include "config.h"
@@ -142,8 +141,8 @@ void fill_scope(Config::DnsRecord &dnsRecord, const std::string &scope_str) {
         }
         number--;
       }
-      *((uint64_t *) &scope.scope_mask.mask6.__in6_u) = htobe64(mask_number_high);
-      *((uint64_t *) (scope.scope_mask.mask6.__in6_u.__u6_addr8 + 8)) = htobe64(mask_number_low);
+      *((uint64_t *) &scope.scope_mask.mask6.s6_addr) = htobe64(mask_number_high);
+      *((uint64_t *) (scope.scope_mask.mask6.s6_addr + 8)) = htobe64(mask_number_low);
 //      std::cout << mask_number_high << "  " << mask_number_low << std::endl;
 
     } else {
@@ -362,7 +361,7 @@ bool Config::DnsRecord::match(struct sockaddr_storage &client_addr) {
            if (client_addr.ss_family == AF_INET6) {
              if (IN6_IS_ADDR_V4MAPPED(&reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr)) {
                if ((*reinterpret_cast<uint32_t *>(reinterpret_cast<sockaddr_in6 *>(
-                                                      &client_addr)->sin6_addr.__in6_u.__u6_addr8 + 12) &
+                                                      &client_addr)->sin6_addr.s6_addr + 12) &
                     scope.scope_mask.mask.s_addr) == scope.scope_addr.addr.s_addr) {
                  return true;
                }
@@ -377,15 +376,15 @@ bool Config::DnsRecord::match(struct sockaddr_storage &client_addr) {
       case AF_INET6:
         if (client_addr.ss_family == AF_INET6 and ! IN6_IS_ADDR_V4MAPPED(&reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr) ) {
 
-          uint64_t high = *reinterpret_cast<uint64_t *>(reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr.__in6_u.__u6_addr8);
+          uint64_t high = *reinterpret_cast<uint64_t *>(reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr.s6_addr);
           uint64_t low = *reinterpret_cast<uint64_t *>(
-              reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr.__in6_u.__u6_addr8 + 8);
+              reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr.s6_addr + 8);
 
-          uint64_t addr_high = *reinterpret_cast<uint64_t *>(scope.scope_addr.addr6.__in6_u.__u6_addr8);
-          uint64_t addr_low = *reinterpret_cast<uint64_t *>(scope.scope_addr.addr6.__in6_u.__u6_addr8 + 8);
+          uint64_t addr_high = *reinterpret_cast<uint64_t *>(scope.scope_addr.addr6.s6_addr);
+          uint64_t addr_low = *reinterpret_cast<uint64_t *>(scope.scope_addr.addr6.s6_addr + 8);
 
-          uint64_t mask_high = *reinterpret_cast<uint64_t *>(scope.scope_mask.mask6.__in6_u.__u6_addr8);
-          uint64_t mask_low = *reinterpret_cast<uint64_t *>(scope.scope_mask.mask6.__in6_u.__u6_addr8 + 8);
+          uint64_t mask_high = *reinterpret_cast<uint64_t *>(scope.scope_mask.mask6.s6_addr);
+          uint64_t mask_low = *reinterpret_cast<uint64_t *>(scope.scope_mask.mask6.s6_addr + 8);
 
 
           if ((high & mask_high) == addr_high and (low & mask_low) == addr_low) {

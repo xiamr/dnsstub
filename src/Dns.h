@@ -5,7 +5,6 @@
 #ifndef DNSSTUB_DNS_H
 #define DNSSTUB_DNS_H
 
-#include <libnet.h>
 #include <fnmatch.h>
 #include <boost/algorithm/string.hpp>
 #include <regex>
@@ -19,6 +18,7 @@
 #include <boost/bimap/set_of.hpp>
 #include <boost/bimap/list_of.hpp>
 #include <boost/format.hpp>
+#include <arpa/inet.h>
 
 class Cache;
 
