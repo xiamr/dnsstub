@@ -4,7 +4,7 @@
 ### 一个抵抗域名污染的小型实现
 
 ##### Requirements:
-- language : C++14
+- language : C++17
 - third-party libraries : boost 1.67 or above, pugixml (optional), JSON for Modern C++ (include by this package)
 
 ##### Supported Platforms:

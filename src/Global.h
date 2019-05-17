@@ -24,5 +24,8 @@ public:
 
 };
 
+int setnonblocking(int fd);
+
+constexpr int max_udp_len = 65536;
 
 #endif //DNSSTUB_GLOBAL_H

@@ -6,7 +6,9 @@
 #include <boost/program_options.hpp>
 #include <iostream>
 #include <boost/format.hpp>
+#include <fcntl.h>
 #include "Global.h"
+#include <boost/log/trivial.hpp>
 
 
 
@@ -125,4 +127,18 @@ void Global::printVersionInfos() {
   std::cout << "             Version : " << DNSSTUB_VERSION << std::endl;
   std::cout << "              Author : " << DNSSTUB_AUTHOR << std::endl;
   std::cout << "----------------------------------------------------------------------" << std::endl << std::endl;
+}
+
+int setnonblocking(int fd) {
+  int old_option = fcntl(fd, F_GETFL);
+  if (old_option == -1) {
+    BOOST_LOG_TRIVIAL(fatal) << "get file descriptor flags failed : " << strerror(errno);
+    exit(EXIT_FAILURE);
+  }
+  int new_option = old_option | O_NONBLOCK;
+  if (fcntl(fd, F_SETFL, new_option) == -1) {
+    BOOST_LOG_TRIVIAL(fatal) << "set nonblocking failed! " << strerror(errno);
+    exit(EXIT_FAILURE);
+  }
+  return old_option;
 }

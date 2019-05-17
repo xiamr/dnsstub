@@ -18,7 +18,7 @@
 
 #endif
 
-
+#include <endian.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 

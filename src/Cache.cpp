@@ -151,51 +151,21 @@ void Cache::heap_decrease_key(int i) {
 void Cache::heap_increase_key(int i) {
   // left 2*(i+1) - 1  and right 2*(i+1)
 
-  int size = static_cast<int>(sorted_heap.size());
-  for (;;) {
-
-    int left_child = LEFT_CHILD(i);
-    int right_child = RIGHT_CHILD(i);
-
-    if (left_child < size and right_child < size) {
-      if (sorted_heap[i]->exp_time > sorted_heap[left_child]->exp_time
-          and sorted_heap[i]->exp_time > sorted_heap[right_child]->exp_time) {
-
-        if (sorted_heap[left_child]->exp_time < sorted_heap[right_child]->exp_time) {
-          swap(i, left_child);
-          i = left_child;
-        } else {
-          swap(i, right_child);
-          i = right_child;
-        }
-      } else if (sorted_heap[i]->exp_time > sorted_heap[left_child]->exp_time) {
-        swap(i, left_child);
-        i = left_child;
-      } else if (sorted_heap[i]->exp_time > sorted_heap[right_child]->exp_time) {
-        swap(i, right_child);
-        i = right_child;
-      } else {
-        break;
-      }
-
-    } else if (left_child < size) {
-      if (sorted_heap[i]->exp_time > sorted_heap[left_child]->exp_time) {
-        swap(i, left_child);
-        i = left_child;
-      } else {
-        break;
-      }
-    } else if (right_child < size) {
-      if (sorted_heap[i]->exp_time > sorted_heap[right_child]->exp_time) {
-        swap(i, right_child);
-        i = right_child;
-      } else {
-        break;
-      }
-    } else {
-      break;
-    }
+  int left_child = LEFT_CHILD(i);
+  int right_child = RIGHT_CHILD(i);
+  int minima = i;
+  if (left_child < sorted_heap.size() and sorted_heap[left_child]->exp_time < sorted_heap[i]->exp_time) {
+    minima = left_child;
   }
+  if (right_child < sorted_heap.size() and sorted_heap[right_child]->exp_time < sorted_heap[minima]->exp_time) {
+    minima = right_child;
+  }
+
+  if (minima != i) {
+    swap(i, minima);
+    heap_increase_key(minima);
+  }
+
 }
 
 void Cache::swap(int i, int j) {
