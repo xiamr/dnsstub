@@ -14,6 +14,7 @@ PKG_RELEASE:=0
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/xiamr/dnsstub/releases/download/v$(PKG_VERSION)/
+PKG_HASH := 59bc365d232291f0a2e8178884bd7d47fbbf3bb87a4d75a2abeb4fd384df9914
 
 PKG_LICENSE:=GPL-3.0
 PKG_LICENSE_FILES:=LICENSE
