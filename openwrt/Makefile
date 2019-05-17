@@ -12,7 +12,7 @@ PKG_VERSION:=0.3
 PKG_RELEASE:=0
 
 
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.bz2
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/xiamr/dnsstub/releases/download/v$(PKG_VERSION)/
 
 PKG_LICENSE:=GPL-3.0
