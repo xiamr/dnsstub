@@ -88,8 +88,9 @@ bool add_upstream(char * /* buf */, ssize_t /* n */, Upstream *upstream) {
 
 bool use_ipv6_lookup(const Upstream *upstream) {
   return (Config::IPv6Mode::Full == config->ipv6First or
-          (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
-                                                     config->ipv6First : false));
+          (upstream->dns1.use_localnet_dns_server ?
+             config->ipv6First == Config::IPv6Mode::OnlyForLocal
+           : config->ipv6First == Config::IPv6Mode::OnlyForRemote));
 }
 
 Upstream *check(char *buf, ssize_t &n, bool tcp = false, int epollfd = 0) {
@@ -181,7 +182,7 @@ Upstream *check(char *buf, ssize_t &n, bool tcp = false, int epollfd = 0) {
           struct epoll_event ev{};
           ev.events = EPOLLET | EPOLLOUT | EPOLLRDHUP;
           ev.data.fd = upfd;
-          int ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+          int ret = connect(upfd, (sockaddr * ) & upserver_addr, sizeof(upserver_addr));
           if (ret < 0 and errno != EINPROGRESS) {
             BOOST_LOG_TRIVIAL(error) << boost::format("connect failed %d : %s ") % __LINE__ % strerror(errno);
             return nullptr;
@@ -192,12 +193,12 @@ Upstream *check(char *buf, ssize_t &n, bool tcp = false, int epollfd = 0) {
           server_tcp_con[upfd] = upstream;
         } else {
           if (upstream->dns1.use_localnet_dns_server) {
-            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+            if (sendto(localnet_server_sock, buf, n, 0, (sockaddr * ) & localnet_server_addr,
                        sizeof(localnet_server_addr)) < 0) {
               BOOST_LOG_TRIVIAL(warning)
                 << boost::format("sendto up stream error %d : %s") % __LINE__ % strerror(errno);
             }
-          } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr, sizeof(upserver_addr)) <
+          } else if (sendto(upserver_sock, buf, n, 0, (sockaddr * ) & upserver_addr, sizeof(upserver_addr)) <
                      0) {
             BOOST_LOG_TRIVIAL(warning) << boost::format("sendto up stream error %d : %s") % __LINE__ % strerror(errno);
           }
@@ -292,7 +293,7 @@ void read_buf(int fd, char *buf, Upstream *up) {
 void acceptTcpIncome(int server_sock_tcp, int epollfd, sockaddr_storage &cliaddr, socklen_t &socklen, epoll_event &ev) {
   for (;;) {
     socklen = sizeof(cliaddr);
-    int newcon = accept4(server_sock_tcp, (sockaddr *) &cliaddr, &socklen, SOCK_NONBLOCK);
+    int newcon = accept4(server_sock_tcp, (sockaddr * ) & cliaddr, &socklen, SOCK_NONBLOCK);
     if (newcon < 0) {
       if (errno != EAGAIN or errno != EWOULDBLOCK)
         BOOST_LOG_TRIVIAL(error) << boost::format("accept error %d : %s") % __LINE__ % strerror(errno);
@@ -349,7 +350,7 @@ void readServerResponse(int server_sock, char *buf) {
 
     *(uint16_t *) buf = htons(upstream->cli_id);
     BOOST_LOG_TRIVIAL(debug) << "send udp response to client";
-    sendto(upstream->s->socket, buf, n, 0, (sockaddr *) &upstream->cliaddr, upstream->socklen);
+    sendto(upstream->s->socket, buf, n, 0, (sockaddr * ) & upstream->cliaddr, upstream->socklen);
     id_map.erase(upstream->up_id);
     boost::checked_delete(upstream);
     upstream = nullptr;
@@ -362,7 +363,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
   ssize_t n;
   socklen = sizeof(struct sockaddr_storage);
   while (1) {
-    n = recvfrom(server_sock, buf, 65536, 0, (sockaddr *) &cliaddr, &socklen);
+    n = recvfrom(server_sock, buf, 65536, 0, (sockaddr * ) & cliaddr, &socklen);
     if (n == -1) {
       if (errno == EAGAIN or errno == EWOULDBLOCK) return;
 //      if (errno == EINTR) continue;
@@ -405,7 +406,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
         BOOST_LOG_TRIVIAL(warning) << "Memory Access Error : " << err.what();
       }
       BOOST_LOG_TRIVIAL(debug) << "send response to client from cache";
-      sendto(server_sock, buf, n, 0, (sockaddr *) &cliaddr, socklen);
+      sendto(server_sock, buf, n, 0, (sockaddr * ) & cliaddr, socklen);
       boost::checked_delete(response);
       boost::checked_delete(up);
     } else {
@@ -426,12 +427,12 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       }
       BOOST_LOG_TRIVIAL(debug) << "send udp request to server";
       if (up->dns1.use_localnet_dns_server) {
-        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr *) &localnet_server_addr,
+        if (sendto(localnet_server_sock, buf, n, 0, (sockaddr * ) & localnet_server_addr,
                    sizeof(localnet_server_addr)) <
             0) {
           BOOST_LOG_TRIVIAL(warning) << "send error : " << __LINE__ << std::endl;
         }
-      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr *) &upserver_addr,
+      } else if (sendto(upserver_sock, buf, n, 0, (sockaddr * ) & upserver_addr,
                         sizeof(upserver_addr)) < 0) {
         BOOST_LOG_TRIVIAL(warning) << "send error : " << __LINE__ << std::endl;
       }
@@ -512,10 +513,10 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
         BOOST_LOG_TRIVIAL(debug) << "new tcp connnect to server";
         int ret;
         if (up->dns1.use_localnet_dns_server) {
-          ret = connect(upfd, (sockaddr *) &localnet_server_addr, sizeof(localnet_server_addr));
+          ret = connect(upfd, (sockaddr * ) & localnet_server_addr, sizeof(localnet_server_addr));
           BOOST_LOG_TRIVIAL(debug) << "Tcp connect to localnet dns server ...";
         } else {
-          ret = connect(upfd, (sockaddr *) &upserver_addr, sizeof(upserver_addr));
+          ret = connect(upfd, (sockaddr * ) & upserver_addr, sizeof(upserver_addr));
           BOOST_LOG_TRIVIAL(debug) << "Tcp connect to remote dns server ...";
         }
         if (ret < 0 and errno != EINPROGRESS) {
@@ -570,7 +571,7 @@ void HandleServerSideTcp(int epollfd, char *buf, struct epoll_event event) {
       if (upstream == nullptr)
         return;
       *(uint16_t *) buf = htons(up->data_len);
-      *(uint16_t *) (buf + 2) = htons(upstream->cli_id);
+      *(uint16_t * )(buf + 2) = htons(upstream->cli_id);
       BOOST_LOG_TRIVIAL(debug) << "send tcp response to client";
       write(upstream->cli_fd, buf, up->data_len + 2);
       close(upstream->cli_fd);

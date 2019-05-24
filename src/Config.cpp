@@ -283,6 +283,9 @@ Config *Config::load_json_config(const std::string &filename) {
         case 2:
           config->ipv6First = IPv6Mode::Full;
           break;
+        case 3:
+          config->ipv6First = IPv6Mode::OnlyForLocal;
+          break;
         default:
           std::cerr << "err type number of ipv6First mode" << std::endl;
           return nullptr;

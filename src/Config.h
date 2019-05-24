@@ -23,7 +23,8 @@ public:
   enum class IPv6Mode {
     Off = 0,
     OnlyForRemote = 1,
-    Full = 2
+    Full = 2,
+    OnlyForLocal = 3
   };
 
   struct Local {
