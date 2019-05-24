@@ -32,6 +32,8 @@ struct sockaddr_storage upserver_addr;
 struct sockaddr_storage localnet_server_addr;
 
 
+bool use_ipv6_lookup(const Upstream *upstream);
+
 int upserver_sock;
 int localnet_server_sock;
 Cache cache;
@@ -52,9 +54,7 @@ bool add_upstream(char * /* buf */, ssize_t /* n */, Upstream *upstream) {
   BOOST_LOG_TRIVIAL(info) << q.name << "  " << Dns::QClass2Name[q.Class] << "  "
                           << Dns::QType2Name.left.find(q.Type)->second;
 
-  if (q.Type == Dns::A and (Config::IPv6Mode::Full == config->ipv6First or
-                            (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
-                                                                       config->ipv6First : false))) {
+  if (q.Type == Dns::A and use_ipv6_lookup(upstream)) {
     q.Type = Dns::AAAA;
     upstream->checked_ipv6 = false;
   } else {
@@ -84,6 +84,12 @@ bool add_upstream(char * /* buf */, ssize_t /* n */, Upstream *upstream) {
   }
   id_map[upstream->up_id] = upstream;
   return true;
+}
+
+bool use_ipv6_lookup(const Upstream *upstream) {
+  return (Config::IPv6Mode::Full == config->ipv6First or
+          (!upstream->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
+                                                     config->ipv6First : false));
 }
 
 Upstream *check(char *buf, ssize_t &n, bool tcp = false, int epollfd = 0) {
@@ -378,9 +384,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
     }
     statistics.countNewQuery(up->dns1);
     Dns *response = nullptr;
-    if (Config::IPv6Mode::Full == config->ipv6First or
-        (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
-                                             config->ipv6First : false)) {
+    if (use_ipv6_lookup(up)) {
       if (up->dns1.questions[0].Type == Dns::A
 //          and !cache.noipv6_domain.count(up->dns1.questions[0].name)
           ) {
@@ -409,9 +413,7 @@ void readIncomeQuery(int server_sock, char *buf, sockaddr_storage &cliaddr, sock
       up->socklen = socklen;
       up->s = udp_server_map[server_sock];
       if (!add_upstream(buf, n, up)) continue;
-      if ((Config::IPv6Mode::Full == config->ipv6First or
-           (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
-                                                config->ipv6First : false)) or config->gfwMode) {
+      if (use_ipv6_lookup(up) or config->gfwMode) {
         try {
           n = up->dns1.to_wire(buf, max_udp_len);
         } catch (out_of_bound &err) {
@@ -461,9 +463,7 @@ void readIncomeTcpQuery(int epollfd, char *buf, struct epoll_event event, DnsQue
       }
       statistics.countNewQuery(up->dns1);
       Dns *response = nullptr;
-      if (Config::IPv6Mode::Full == config->ipv6First or
-          (!up->dns1.use_localnet_dns_server ? Config::IPv6Mode::OnlyForRemote ==
-                                               config->ipv6First : false)) {
+      if (use_ipv6_lookup(up)) {
         if (up->dns1.questions[0].Type == Dns::A
 //        and !cache.noipv6_domain.count(up->dns1.questions[0].name)
             ) {
