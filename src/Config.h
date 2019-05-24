@@ -10,6 +10,7 @@
 #include <boost/log/trivial.hpp>
 #include <boost/bimap.hpp>
 #include <netinet/in.h>
+#include <unordered_set>
 
 #include "config.h"
 
@@ -26,6 +27,8 @@ public:
     Full = 2,
     OnlyForLocal = 3
   };
+
+  std::unordered_set<std::string> ipv6FirstExcept;
 
   struct Local {
     std::string address;
@@ -108,6 +111,7 @@ private:
   void trimAll();
 
   static std::unordered_map<std::string, boost::log::trivial::severity_level> severity_level_map;
+  static std::unordered_map<std::string, IPv6Mode > ipv6mode_map;
 };
 
 

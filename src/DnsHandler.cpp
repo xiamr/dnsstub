@@ -87,6 +87,13 @@ bool add_upstream(char * /* buf */, ssize_t /* n */, Upstream *upstream) {
 }
 
 bool use_ipv6_lookup(const Upstream *upstream) {
+  for (auto domain : config->ipv6FirstExcept) {
+    for (auto &q : upstream->dns1.questions) {
+      if (fnmatch(domain.c_str(), q.name.c_str(), FNM_CASEFOLD) == 0) {
+        return false;
+      }
+    }
+  }
   return (Config::IPv6Mode::Full == config->ipv6First or
           (upstream->dns1.use_localnet_dns_server ?
              config->ipv6First == Config::IPv6Mode::OnlyForLocal

@@ -17,7 +17,14 @@
             <xs:element name="statisticsFile" type="xs:string" default=""/>
             <xs:element name="enableCache" type="xs:boolean" default="false"/>
             <xs:element name="enableTcp" type="xs:boolean" default="false"/>
-            <xs:element name="ipv6First" type="xs:integer" default="0"/>
+            <xs:element name="ipv6First" type="ipv6FirstMode" default="Off"/>
+            <xs:element name="ipv6FirstExcept">
+                <xs:complexType>
+                    <xs:sequence minOccurs="1">
+                        <xs:element name="domain" type="xs:string"/>
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
             <xs:element name="gfwMode" type="xs:boolean" default="false"/>
             <xs:element name="daemonMode" type="xs:boolean" default="false"/>
             <xs:element name="severity" type="severity_level" default="info"/>
@@ -66,6 +73,14 @@
             <xs:enumeration value="warning"/>
             <xs:enumeration value="error"/>
             <xs:enumeration value="fatal"/>
+        </xs:restriction>
+    </xs:simpleType>
+    <xs:simpleType name="ipv6FirstMode">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="Off"/>
+            <xs:enumeration value="OnlyForLocal"/>
+            <xs:enumeration value="OnlyForRemote"/>
+            <xs:enumeration value="Full"/>
         </xs:restriction>
     </xs:simpleType>
 </xs:schema>

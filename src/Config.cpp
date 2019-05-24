@@ -37,6 +37,13 @@ std::unordered_map<std::string, boost::log::trivial::severity_level> Config::sev
     {boost::log::trivial::to_string(boost::log::trivial::fatal),   boost::log::trivial::fatal}
 };
 
+std::unordered_map<std::string, Config::IPv6Mode> Config::ipv6mode_map = {
+    {"Off",           Config::IPv6Mode::Off},
+    {"OnlyForLocal",  Config::IPv6Mode::OnlyForLocal},
+    {"OnlyForRemote", Config::IPv6Mode::OnlyForRemote},
+    {"Full",          Config::IPv6Mode::Full},
+};
+
 void Config::trimAll() {
   for (auto &local : locals) {
     boost::trim(local.address);
@@ -62,9 +69,9 @@ Config *Config::load_config_file(const std::string &config_filename) {
   } else {
     std::cerr << "Error type of config file (either json "
 
-#ifdef ENABLE_XML
+                 #ifdef ENABLE_XML
                  "or xml"
-#endif
+                 #endif
                  " format)" << std::endl;
     exit(1);
   }
@@ -119,7 +126,7 @@ void fill_scope(Config::DnsRecord &dnsRecord, const std::string &scope_str) {
         try {
           number = boost::lexical_cast<int>(results[1].c_str());
         } catch (boost::bad_lexical_cast &e) {
-          std::cerr << "mask length must be a integer: " <<  e.what() << std::endl;
+          std::cerr << "mask length must be a integer: " << e.what() << std::endl;
           exit(4);
         }
 
@@ -141,8 +148,8 @@ void fill_scope(Config::DnsRecord &dnsRecord, const std::string &scope_str) {
         }
         number--;
       }
-      *((uint64_t *) &scope.scope_mask.mask6.s6_addr) = htobe64(mask_number_high);
-      *((uint64_t *) (scope.scope_mask.mask6.s6_addr + 8)) = htobe64(mask_number_low);
+      *((uint64_t * ) & scope.scope_mask.mask6.s6_addr) = htobe64(mask_number_high);
+      *((uint64_t * )(scope.scope_mask.mask6.s6_addr + 8)) = htobe64(mask_number_low);
 //      std::cout << mask_number_high << "  " << mask_number_low << std::endl;
 
     } else {
@@ -167,6 +174,7 @@ void fill_scope(Config::DnsRecord &dnsRecord, const std::string &scope_str) {
 }
 
 #ifdef ENABLE_XML
+
 Config *Config::load_xml_config(const std::string &filename) {
 
 
@@ -202,7 +210,23 @@ Config *Config::load_xml_config(const std::string &filename) {
 
   config->enableCache = root.child("enableCache").text().as_bool(false);
   config->enableTcp = root.child("enableTcp").text().as_bool(false);
-  config->ipv6First = static_cast<IPv6Mode >(root.child("ipv6First").text().as_int(1));
+
+  try {
+    config->ipv6First = Config::ipv6mode_map.at(boost::trim_copy(std::string(root.child("ipv6First").text().as_string("Off"))));
+  } catch (std::out_of_range &e) {
+    std::cerr << "Unkown ipv6First Mode : " << e.what() << std::endl;
+    exit(EXIT_FAILURE);
+  }
+
+
+  if (auto ipv6FirstExceptIter = root.child("ipv6FirstExcept"); !ipv6FirstExceptIter.empty()) {
+    for (auto &domain : ipv6FirstExceptIter.children("domain")) {
+      std::string domain_str = domain.text().as_string();
+      boost::trim(domain_str);
+      if (!domain_str.empty()) config->ipv6FirstExcept.insert(domain_str);
+    }
+  }
+
   config->gfwMode = root.child("gfwMode").text().as_bool(false);
   config->daemonMode = root.child("daemonMode").text().as_bool(false);
 
@@ -237,6 +261,10 @@ Config *Config::load_xml_config(const std::string &filename) {
         for (auto scope : scopes.children("scope")) {
           std::string scope_str = scope.text().as_string();
           boost::trim(scope_str);
+          if (scope_str.empty()) {
+            std::cerr << "scope is empty\n";
+            exit(EXIT_FAILURE);
+          }
           fill_scope(dnsRecord, scope_str);
         }
       }
@@ -253,6 +281,7 @@ Config *Config::load_xml_config(const std::string &filename) {
   return config;
 
 }
+
 #endif
 
 Config *Config::load_json_config(const std::string &filename) {
@@ -273,23 +302,22 @@ Config *Config::load_json_config(const std::string &filename) {
 
       config->enableCache = j.value("enableCache", false);
       config->enableTcp = j.value("enableTcp", false);
-      switch (j.value("ipv6First", 1)) {
-        case 0:
-          config->ipv6First = IPv6Mode::Off;
-          break;
-        case 1:
-          config->ipv6First = IPv6Mode::OnlyForRemote;
-          break;
-        case 2:
-          config->ipv6First = IPv6Mode::Full;
-          break;
-        case 3:
-          config->ipv6First = IPv6Mode::OnlyForLocal;
-          break;
-        default:
-          std::cerr << "err type number of ipv6First mode" << std::endl;
-          return nullptr;
+      try {
+        config->ipv6First = Config::ipv6mode_map.at(boost::trim_copy(std::string(j.value("ipv6First", "Off"))));
+      } catch (std::out_of_range &e) {
+        std::cerr << "Unkown ipv6First Mode : " << e.what() << std::endl;
+        exit(EXIT_FAILURE);
       }
+
+      auto it = j.find("ipv6FirstExcept");
+      if (it != j.end()) {
+        for (auto &domain : *it) {
+          std::string domain_str = domain;
+          config->ipv6FirstExcept.insert(domain_str);
+        }
+      }
+
+
       config->gfwMode = j.value("gfwMode", false);
       config->daemonMode = j.value("daemonMode", false);
 
@@ -312,7 +340,7 @@ Config *Config::load_json_config(const std::string &filename) {
       config->localnet_server_port = localnet.value("port", 53);
 
 
-      auto it = j.find("mappings");
+      it = j.find("mappings");
       if (it != j.end()) {
         for (auto &item : *it) {
           std::string type_str = item["type"];
@@ -361,23 +389,24 @@ bool Config::DnsRecord::match(struct sockaddr_storage &client_addr) {
   for (auto &scope : scopes) {
     switch (scope.scope_ss_family) {
       case AF_INET:
-           if (client_addr.ss_family == AF_INET6) {
-             if (IN6_IS_ADDR_V4MAPPED(&reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr)) {
-               if ((*reinterpret_cast<uint32_t *>(reinterpret_cast<sockaddr_in6 *>(
-                                                      &client_addr)->sin6_addr.s6_addr + 12) &
-                    scope.scope_mask.mask.s_addr) == scope.scope_addr.addr.s_addr) {
-                 return true;
-               }
-             }
-           } else if (client_addr.ss_family == AF_INET) {
-             if ((reinterpret_cast<sockaddr_in *>(&client_addr)->sin_addr.s_addr & scope.scope_mask.mask.s_addr) ==
-                 scope.scope_addr.addr.s_addr)
-               return true;
-           }
+        if (client_addr.ss_family == AF_INET6) {
+          if (IN6_IS_ADDR_V4MAPPED(&reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr)) {
+            if ((*reinterpret_cast<uint32_t *>(reinterpret_cast<sockaddr_in6 *>(
+                                                   &client_addr)->sin6_addr.s6_addr + 12) &
+                 scope.scope_mask.mask.s_addr) == scope.scope_addr.addr.s_addr) {
+              return true;
+            }
+          }
+        } else if (client_addr.ss_family == AF_INET) {
+          if ((reinterpret_cast<sockaddr_in *>(&client_addr)->sin_addr.s_addr & scope.scope_mask.mask.s_addr) ==
+              scope.scope_addr.addr.s_addr)
+            return true;
+        }
         break;
 
       case AF_INET6:
-        if (client_addr.ss_family == AF_INET6 and ! IN6_IS_ADDR_V4MAPPED(&reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr) ) {
+        if (client_addr.ss_family == AF_INET6 and
+            !IN6_IS_ADDR_V4MAPPED(&reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr)) {
 
           uint64_t high = *reinterpret_cast<uint64_t *>(reinterpret_cast<sockaddr_in6 *>(&client_addr)->sin6_addr.s6_addr);
           uint64_t low = *reinterpret_cast<uint64_t *>(

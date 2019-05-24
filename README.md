@@ -47,7 +47,8 @@
   "su" : "nobody",
   "enableCache": true,
   "enableTcp": true,
-  "ipv6First": 1,
+  "ipv6First": "OnlyForLocal",
+  "Ipv6FirstExcept": [ "www.qq.com."],
   "gfwMode": true,
   "daemonMode": false,
   "severity": "info",
@@ -78,7 +79,10 @@
     <su>nobody</su>
     <enableCache>true</enableCache>
     <enableTcp>true</enableTcp>
-    <ipv6First>1</ipv6First>
+    <ipv6First>OnlyForLocal</ipv6First>
+        <ipv6FirstExcept>
+        <domain>www.qq.com.</domain>
+    </ipv6FirstExcept>
     <gfwMode>true</gfwMode>
     <daemonMode>false</daemonMode>
     <severity>info</severity>
@@ -103,11 +107,14 @@
 - su  \[optinal] : change usr account after start up
 - enableCache \[optional] : enable internal dns cache, recommand, default is false
 - enableTcp \[optional] : enable tcp query support, both local and remote, defulat is false
-- ipv6First \[optional] : ipv6 mode, force return ipv6 address when available, default is 0<br>
- &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;three levels supported:<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;0 : turn off this feature<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1 : only for domains in gfwlist<br>
-        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2 : for all domains<br>
+- ipv6First \[optional] : ipv6 mode, force return ipv6 address when available, default is Off<br>
+ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;four levels supported:<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Off : turn off this feature<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;OnlyForLocal  : only for domains not in gfwlist<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;OnlyForRemote : only for domains in gfwlist<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Full : for all domains<br>
+        
+- ipv6FirstExcept \[optional] : domain list not affected by above ipv6First policy (support wildcard)
 - daemonMode \[optional]: become daemon after start up, default is false
 - severity \[optional]: verbose level for logging facility, default is info:<br>
     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;can be one of the following value:<br>
